@@ -3,12 +3,68 @@ package Route
 import (
 	Helper "GANBANKING_API/src/helper"
 	Service "GANBANKING_API/src/service"
-	"net/http"
 
 	"fmt"
 
 	"github.com/labstack/echo/v4"
 )
+
+func UpdateCustomer(c echo.Context) error {
+	result := []map[string]interface{}{}
+
+	request := Helper.GetJSONRawBody(c)
+
+	if request["customer_id"] == nil {
+		return echo.NewHTTPError(500, "dont have customer id")
+	}
+
+	id := fmt.Sprintf("%g", request["customer_id"].(float64))
+
+	delete(request, "customer_id")
+
+	db := Service.InitialiedDb()
+
+	var condition string
+
+	index := 0
+	for key, value := range request {
+		valueType := fmt.Sprintf("%T", value)
+
+		if index == len(request)-1 || len(request) == 1 {
+			if valueType == "float64" {
+				condition += fmt.Sprintf("%s = '%g'", key, value.(float64))
+			} else {
+				condition += fmt.Sprintf("%s = '%s'", key, value)
+			}
+
+		} else {
+			if valueType == "float64" {
+				condition += fmt.Sprintf("%s = '%g',", key, value.(float64))
+			} else {
+				condition += fmt.Sprintf("%s = '%s',", key, value)
+			}
+		}
+
+		index++
+	}
+
+	err := db.Raw(`
+	UPDATE Customer SET ` + condition + ` WHERE customer_id = ` + id + `
+	`).Scan(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(500, "update fail")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.String(200, "update success")
+
+}
 
 func CreateCustomer(c echo.Context) error {
 	result := []map[string]interface{}{}
@@ -51,12 +107,12 @@ func CreateCustomer(c echo.Context) error {
 		'` + fmt.Sprintf("%g", request["work_district_id"].(float64)) + `',
 		'` + fmt.Sprintf("%s", request["work_address"]) + `',
 		'` + fmt.Sprintf("%s", request["work_address_name"]) + `',
-		'` + fmt.Sprintf("%s", request["postcode"]) + `'
+		'` + fmt.Sprintf("%s", request["passcode"]) + `'
 		)
 	`).Scan(&result).Error
 
 	if err != nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "create fail")
+		return echo.NewHTTPError(500, "create fail")
 	}
 
 	sql, err := db.DB()

@@ -15,6 +15,7 @@ func main() {
 
 	customerGroup := mobileGroup.Group("/customer")
 	customerGroup.POST("/create", Route.CreateCustomer)
+	customerGroup.POST("/update", Route.UpdateCustomer)
 
 	e.Start(":8080")
 }
