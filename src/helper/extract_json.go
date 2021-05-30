@@ -8,7 +8,6 @@ import (
 )
 
 func GetJSONRawBody(c echo.Context) map[string]interface{} {
-
 	jsonBody := make(map[string]interface{})
 	err := json.NewDecoder(c.Request().Body).Decode(&jsonBody)
 	if err != nil {

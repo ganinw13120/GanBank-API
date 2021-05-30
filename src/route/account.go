@@ -3,11 +3,16 @@ package Route
 import (
 	Helper "GANBANKING_API/src/helper"
 	Service "GANBANKING_API/src/service"
+	"sync"
+	"time"
 
 	"fmt"
 
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
+
+var wg sync.WaitGroup
 
 func GetAccountByID(c echo.Context) error {
 	result := map[string]interface{}{}
@@ -110,4 +115,73 @@ func CreateAccount(c echo.Context) error {
 	defer sql.Close()
 
 	return c.String(200, "create success")
+}
+
+func PrepareAccount(c echo.Context) error {
+	start := time.Now()
+	db := Service.InitialiedDb()
+	result := map[string][]map[string]interface{}{}
+	wg.Add(5)
+	go GetBranchList(db, result)
+	go GetAccountType(db, result)
+	go GetCareer(db, result)
+	go GetEducationLevel(db, result)
+	go Helper.GetProvience(db, result, &wg)
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	wg.Wait()
+	defer sql.Close()
+	defer fmt.Println(time.Since(start))
+	return c.JSON(200, result)
+}
+
+func GetBranchList(db *gorm.DB, res map[string][]map[string]interface{}) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT branch_name FROM Branch
+	`).Scan(&result).Error
+	res["branch"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func GetAccountType(db *gorm.DB, res map[string][]map[string]interface{}) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT account_type_name FROM AccountType
+	`).Scan(&result).Error
+	res["account_type"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func GetCareer(db *gorm.DB, res map[string][]map[string]interface{}) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT career_name FROM Career
+	`).Scan(&result).Error
+	res["career"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func GetEducationLevel(db *gorm.DB, res map[string][]map[string]interface{}) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT education_level_name FROM EducationLevel
+	`).Scan(&result).Error
+	res["education_level"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
 }

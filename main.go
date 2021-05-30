@@ -8,8 +8,13 @@ import (
 )
 
 func main() {
+
 	godotenv.Load()
 	e := echo.New()
+
+	e.GET("/", func(c echo.Context) error {
+		return c.String(200, "Success")
+	})
 
 	mobileGroup := e.Group("/mobile")
 	cmsGroup := e.Group("cms")
@@ -21,6 +26,7 @@ func main() {
 	cmsAccountGroup := cmsGroup.Group("/account")
 	cmsAccountGroup.POST("/create", Route.CreateAccount)
 	cmsAccountGroup.GET("/info", Route.GetAccount)
+	cmsAccountGroup.POST("/prepare", Route.PrepareAccount)
 
 	mobileAccountGroup := mobileGroup.Group("/account")
 	mobileAccountGroup.POST("/info", Route.GetAccountByID)
@@ -35,6 +41,7 @@ func main() {
 	cmsBranchGroup.POST("/create", Route.CreateBranch)
 	cmsBranchGroup.PUT("/update", Route.UpdateBranch)
 	cmsBranchGroup.DELETE("/delete", Route.DeleteBranch)
+	cmsBranchGroup.POST("/prepare", Route.PrepareBranch)
 
 	cmsPositionGroup := cmsGroup.Group("/position")
 	cmsPositionGroup.POST("/create", Route.CreatePosition)
