@@ -123,3 +123,85 @@ func CreateCustomer(c echo.Context) error {
 
 	return c.String(200, "create success")
 }
+
+func HasCustomer(c echo.Context) error {
+	request := Helper.GetJSONRawBody(c)
+	var phoneNumber string
+	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
+
+	var exists bool
+
+	db := Service.InitialiedDb()
+
+	db.Raw(`
+	SELECT EXISTS(SELECT customer_phone_number FROM Customer
+		WHERE customer_phone_number = '` + phoneNumber + `')
+	`).Scan(&exists)
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, exists)
+}
+
+func HasCustomerKey(c echo.Context) error {
+	request := Helper.GetJSONRawBody(c)
+	var phoneNumber string
+	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
+
+	var exists bool
+
+	db := Service.InitialiedDb()
+
+	db.Raw(`
+	SELECT EXISTS(SELECT customer_key 
+		FROM CustomerKey 
+		WHERE customer_id = 
+		(SELECT customer_id 
+			FROM Customer
+			WHERE customer_phone_number = '` + phoneNumber + `')) 
+	`).Scan(&exists)
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, exists)
+}
+
+func CreateCustomerKey(c echo.Context) error {
+	request := Helper.GetJSONRawBody(c)
+	var pwd string
+	var phoneNumber string
+	pwd += fmt.Sprintf("%s", request["customer_key"])
+	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
+	hashPassword := Helper.HashAndSalt(pwd)
+	var result interface{}
+	db := Service.InitialiedDb()
+	err := db.Raw(`
+	INSERT INTO CustomerKey (customer_key_id, customer_id, customer_key, created_at) 
+	VALUES (
+		NULL, 
+		(SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `'), 
+		'` + hashPassword + `', 
+		current_timestamp())
+	`).Scan(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(500, "create fail")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	fmt.Println(hashPassword)
+	return c.String(200, "Success")
+}

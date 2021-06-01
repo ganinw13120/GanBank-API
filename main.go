@@ -22,6 +22,9 @@ func main() {
 	mobileCustomerGroup := mobileGroup.Group("/customer")
 	mobileCustomerGroup.POST("/create", Route.CreateCustomer)
 	mobileCustomerGroup.PUT("/update", Route.UpdateCustomer)
+	mobileCustomerGroup.POST("/has", Route.HasCustomer)
+	mobileCustomerGroup.POST("/haskey", Route.HasCustomerKey)
+	mobileCustomerGroup.POST("/createkey", Route.CreateCustomerKey)
 
 	cmsAccountGroup := cmsGroup.Group("/account")
 	cmsAccountGroup.POST("/create", Route.CreateAccount)
