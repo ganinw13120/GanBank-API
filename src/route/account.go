@@ -12,8 +12,6 @@ import (
 	"gorm.io/gorm"
 )
 
-var wg sync.WaitGroup
-
 func GetAccountByID(c echo.Context) error {
 	result := map[string]interface{}{}
 
@@ -118,14 +116,16 @@ func CreateAccount(c echo.Context) error {
 }
 
 func PrepareAccount(c echo.Context) error {
+	var wg sync.WaitGroup
+
 	start := time.Now()
 	db := Service.InitialiedDb()
 	result := map[string][]map[string]interface{}{}
 	wg.Add(5)
-	go GetBranchList(db, result)
-	go GetAccountType(db, result)
-	go GetCareer(db, result)
-	go GetEducationLevel(db, result)
+	go GetBranchList(db, result, &wg)
+	go GetAccountType(db, result, &wg)
+	go GetCareer(db, result, &wg)
+	go GetEducationLevel(db, result, &wg)
 	go Helper.GetProvience(db, result, &wg)
 
 	sql, err := db.DB()
@@ -138,11 +138,11 @@ func PrepareAccount(c echo.Context) error {
 	return c.JSON(200, result)
 }
 
-func GetBranchList(db *gorm.DB, res map[string][]map[string]interface{}) {
+func GetBranchList(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
-	SELECT branch_name FROM Branch
+	SELECT branch_id,branch_name FROM Branch
 	`).Scan(&result).Error
 	res["branch"] = result
 	if err != nil {
@@ -150,7 +150,7 @@ func GetBranchList(db *gorm.DB, res map[string][]map[string]interface{}) {
 	}
 }
 
-func GetAccountType(db *gorm.DB, res map[string][]map[string]interface{}) {
+func GetAccountType(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
@@ -162,7 +162,7 @@ func GetAccountType(db *gorm.DB, res map[string][]map[string]interface{}) {
 	}
 }
 
-func GetCareer(db *gorm.DB, res map[string][]map[string]interface{}) {
+func GetCareer(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
@@ -174,11 +174,11 @@ func GetCareer(db *gorm.DB, res map[string][]map[string]interface{}) {
 	}
 }
 
-func GetEducationLevel(db *gorm.DB, res map[string][]map[string]interface{}) {
+func GetEducationLevel(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
-	SELECT education_level_name FROM EducationLevel
+	SELECT education_level_id, education_level_name FROM EducationLevel
 	`).Scan(&result).Error
 	res["education_level"] = result
 	if err != nil {

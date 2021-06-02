@@ -41,7 +41,7 @@ func main() {
 	cmsBranchGroup.POST("/create", Route.CreateBranch)
 	cmsBranchGroup.PUT("/update", Route.UpdateBranch)
 	cmsBranchGroup.DELETE("/delete", Route.DeleteBranch)
-	cmsBranchGroup.POST("/prepare", Route.PrepareBranch)
+	cmsBranchGroup.POST("/info", Route.GetAllBranch)
 
 	cmsPositionGroup := cmsGroup.Group("/position")
 	cmsPositionGroup.POST("/create", Route.CreatePosition)
@@ -57,6 +57,13 @@ func main() {
 	cmsStaffGroup.POST("/create", Route.CreateStaff)
 	cmsStaffGroup.PUT("/update", Route.UpdateStaff)
 	cmsStaffGroup.DELETE("/delete", Route.DeleteStaff)
+	cmsStaffGroup.POST("/prepare", Route.GetPrepareStaff)
+	cmsStaffGroup.POST("/info", Route.GetAllStaff)
+
+	cmsAddressGroup := cmsGroup.Group("/address")
+	cmsAddressGroup.POST("/province", Route.GetProvince)
+	cmsAddressGroup.POST("/amphur", Route.GetAmphur)
+	cmsAddressGroup.POST("/district", Route.GetDistrict)
 
 	e.Start(":8080")
 }

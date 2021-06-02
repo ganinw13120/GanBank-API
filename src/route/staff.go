@@ -3,10 +3,13 @@ package Route
 import (
 	Helper "GANBANKING_API/src/helper"
 	Service "GANBANKING_API/src/service"
+	"sync"
+	"time"
 
 	"fmt"
 
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 func DeleteStaff(c echo.Context) error {
@@ -98,7 +101,7 @@ func CreateStaff(c echo.Context) error {
 
 	if request["middlename"] != nil {
 
-		middlename += fmt.Sprintf("'%s'", request["staff_middlename"])
+		middlename += fmt.Sprintf("'%s'", request["middlename"])
 	} else {
 		middlename += "NULL"
 	}
@@ -110,21 +113,21 @@ func CreateStaff(c echo.Context) error {
 		staff_auth_password) 
 		VALUES (
 			NULL, 
-			'` + fmt.Sprintf("%s", request["branch_id"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_firstname"]) + `',  
-			'` + middlename + `',  
-			'` + fmt.Sprintf("%s", request["staff_lastname"]) + `', 
-			'` + fmt.Sprintf("%s", request["position_id"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_phone_number"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_idcard_number"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_district_id"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_address"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_address_name"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_status"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_gender"]) + `', 
-			'` + fmt.Sprintf("%s", request["education_level_id"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_auth_email"]) + `', 
-			'` + fmt.Sprintf("%s", request["staff_auth_password"]) + `'
+			'` + fmt.Sprintf("%.0f", request["branch_id"]) + `', 
+			'` + fmt.Sprintf("%s", request["firstname"]) + `',  
+			` + middlename + `,  
+			'` + fmt.Sprintf("%s", request["lastname"]) + `', 
+			'` + fmt.Sprintf("%.0f", request["position_id"]) + `', 
+			'` + fmt.Sprintf("%s", request["phone_number"]) + `', 
+			'` + fmt.Sprintf("%s", request["idcard"]) + `', 
+			'` + fmt.Sprintf("%.0f", request["district_id"]) + `', 
+			'` + fmt.Sprintf("%s", request["address"]) + `', 
+			'` + fmt.Sprintf("%s", request["address_name"]) + `', 
+			'` + fmt.Sprintf("%s", request["status"]) + `', 
+			'` + fmt.Sprintf("%s", request["gender"]) + `', 
+			'` + fmt.Sprintf("%.0f", request["education"]) + `', 
+			'` + fmt.Sprintf("%s", request["email"]) + `', 
+			'` + fmt.Sprintf("%s", request["password"]) + `'
 		)
 
 	`).Scan(&result).Error
@@ -140,4 +143,63 @@ func CreateStaff(c echo.Context) error {
 	defer sql.Close()
 
 	return c.String(200, "create success")
+}
+
+func GetPrepareStaff(c echo.Context) error {
+	var wg sync.WaitGroup
+	start := time.Now()
+	db := Service.InitialiedDb()
+	result := map[string][]map[string]interface{}{}
+	wg.Add(4)
+	go GetBranchList(db, result, &wg)
+	go GetEducationLevel(db, result, &wg)
+	go GetPosition(db, result, &wg)
+	go Helper.GetProvience(db, result, &wg)
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	wg.Wait()
+	defer sql.Close()
+	defer fmt.Println(time.Since(start))
+	return c.JSON(200, result)
+}
+
+func GetPosition(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT position_id, position_name FROM Position
+	`).Scan(&result).Error
+	res["Position"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func GetAllStaff(c echo.Context) error {
+	result := []map[string]interface{}{}
+
+	db := Service.InitialiedDb()
+
+	err := db.Raw(`
+	SELECT * FROM Staff LEFT JOIN District ON Staff.staff_district_id=District.district_id
+	LEFT JOIN Amphur ON District.amphur_id=Amphur.amphur_id
+	LEFT JOIN Province ON Amphur.province_id=Province.province_id
+	LEFT JOIN Position ON Staff.position_id=Position.position_id
+	LEFT JOIN Branch ON Staff.branch_id=Branch.branch_id
+	`).Scan(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(404, "not fond")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
 }

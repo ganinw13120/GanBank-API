@@ -3,7 +3,6 @@ package Route
 import (
 	Helper "GANBANKING_API/src/helper"
 	Service "GANBANKING_API/src/service"
-	"time"
 
 	"fmt"
 
@@ -117,19 +116,27 @@ func CreateBranch(c echo.Context) error {
 
 	return c.String(200, "create success")
 }
-func PrepareBranch(c echo.Context) error {
-	start := time.Now()
+
+func GetAllBranch(c echo.Context) error {
+	result := []map[string]interface{}{}
+
 	db := Service.InitialiedDb()
-	result := map[string][]map[string]interface{}{}
-	wg.Add(1)
-	go Helper.GetProvience(db, result, &wg)
+
+	err := db.Raw(`
+	SELECT * FROM Branch LEFT JOIN District ON Branch.district_id=District.district_id
+	LEFT JOIN Amphur ON District.amphur_id=Amphur.amphur_id
+	LEFT JOIN Province ON Amphur.province_id=Province.province_id
+	`).Scan(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(404, "not fond")
+	}
 
 	sql, err := db.DB()
 	if err != nil {
 		panic(err.Error())
 	}
-	wg.Wait()
 	defer sql.Close()
-	defer fmt.Println(time.Since(start))
+
 	return c.JSON(200, result)
 }
