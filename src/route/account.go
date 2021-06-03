@@ -54,6 +54,132 @@ func GetAccountByID(c echo.Context) error {
 	return c.JSON(200, result)
 }
 
+func PrepareTransaction(c echo.Context) error {
+	start := time.Now()
+	db := Service.InitialiedDb()
+	request := Helper.GetJSONRawBody(c)
+	var accountNo string
+	accountNo += fmt.Sprintf("%s", request["account_no"])
+	result := map[string][]map[string]interface{}{}
+	wg.Add(2)
+	go GetAccountIncomeAndOutcome(db, result, accountNo)
+	go GetAccountTransaction(db, result, accountNo)
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	wg.Wait()
+	defer sql.Close()
+	defer fmt.Println(time.Since(start))
+	return c.JSON(200, result)
+}
+
+func GetAccountIncomeAndOutcome(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string) {
+	result := []map[string]interface{}{}
+	defer wg.Done()
+	err := db.Raw(`
+	SELECT (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE (tran.transaction_account_no_from = '` + accountNo + `' AND tran.transaction_type_id != 2 AND tran.transaction_type_id != 3)
+		OR tran.transaction_account_no_to = '` + accountNo + `'
+		AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+		AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+		   ) AS income_current_month,
+		  (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE (tran.transaction_account_no_from = '` + accountNo + `' AND tran.transaction_type_id != 2 AND tran.transaction_type_id != 3)
+		OR tran.transaction_account_no_to = '` + accountNo + `'
+		   ) AS income_all,
+		   (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE tran.transaction_account_no_from = '` + accountNo + `' 
+		AND tran.transaction_type_id != 1
+		AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+		AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+		   ) AS outcome_current_month,
+		   (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE tran.transaction_account_no_from = '` + accountNo + `' 
+		AND tran.transaction_type_id != 1
+		   ) AS outcome_all
+	`).Scan(&result).Error
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	res["income_outcome"] = result
+
+}
+
+func GetAccountTransaction(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string) {
+	result := []map[string]interface{}{}
+	defer wg.Done()
+	err := db.Raw(`
+	SELECT tran.transaction_amount, type.transaction_type_name, tran.transaction_timestamp, "from" AS account_way 
+	FROM Transaction AS tran
+	INNER JOIN TransactionType AS type
+	ON tran.transaction_type_id = type.transaction_type_id
+	WHERE tran.transaction_account_no_from = '` + accountNo + `'
+	AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+	AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+	UNION
+	SELECT tran.transaction_amount, type.transaction_type_name, tran.transaction_timestamp, "to" AS account_way 
+	FROM Transaction AS tran
+	INNER JOIN TransactionType AS type
+	ON tran.transaction_type_id = type.transaction_type_id
+	WHERE tran.transaction_account_no_to = '` + accountNo + `' 
+	AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+	AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+	ORDER BY transaction_timestamp DESC
+	`).Scan(&result).Error
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	res["transaction"] = result
+}
+
+func GetAccountByCustomer(c echo.Context) error {
+	result := []map[string]interface{}{}
+	request := Helper.GetJSONRawBody(c)
+	var token string
+	var phoneNumber string
+	token += fmt.Sprintf("%s", request["token"])
+	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
+	db := Service.InitialiedDb()
+
+	if !Helper.CheckCustomerToken(token, phoneNumber) {
+		return echo.NewHTTPError(500, "token mismatch")
+	}
+
+	err := db.Raw(`
+	SELECT account_no, account_name, account_balance, t.account_type_name
+	FROM Account AS a
+    INNER JOIN AccountType AS t
+    ON a.account_type_id = t.account_type_id
+	WHERE a.account_no IN (
+		SELECT DISTINCT(account_no) FROM AccountOwner WHERE customer_id = (SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `')
+	)
+	`).Scan(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(404, "not fond")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
+}
+
 func GetAccount(c echo.Context) error {
 	result := []map[string]interface{}{}
 
@@ -184,4 +310,5 @@ func GetEducationLevel(db *gorm.DB, res map[string][]map[string]interface{}) {
 	if err != nil {
 		fmt.Println(err)
 	}
+
 }

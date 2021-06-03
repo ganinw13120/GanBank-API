@@ -157,12 +157,9 @@ func HasCustomerKey(c echo.Context) error {
 	db := Service.InitialiedDb()
 
 	db.Raw(`
-	SELECT EXISTS(SELECT customer_key 
-		FROM CustomerKey 
-		WHERE customer_id = 
-		(SELECT customer_id 
-			FROM Customer
-			WHERE customer_phone_number = '` + phoneNumber + `')) 
+	SELECT EXISTS(SELECT * 
+		FROM Customer 
+		WHERE customer_passcode IS NOT NULL) 
 	`).Scan(&exists)
 
 	sql, err := db.DB()
@@ -174,22 +171,19 @@ func HasCustomerKey(c echo.Context) error {
 	return c.JSON(200, exists)
 }
 
-func CreateCustomerKey(c echo.Context) error {
+func CreateCustomerSession(c echo.Context) error {
 	request := Helper.GetJSONRawBody(c)
-	var pwd string
+	var token string
 	var phoneNumber string
-	pwd += fmt.Sprintf("%s", request["customer_key"])
-	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
-	hashPassword := Helper.HashAndSalt(pwd)
+	token += fmt.Sprintf("%s", request["token"])
+	phoneNumber += fmt.Sprintf("%s", request["phoneNumber"])
+	hashToken := Helper.HashAndSalt(token)
+
 	var result interface{}
 	db := Service.InitialiedDb()
 	err := db.Raw(`
-	INSERT INTO CustomerKey (customer_key_id, customer_id, customer_key, created_at) 
-	VALUES (
-		NULL, 
-		(SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `'), 
-		'` + hashPassword + `', 
-		current_timestamp())
+	INSERT INTO CustomerSession (customer_session_id, customer_session_token, customer_session_timestamp, customer_session_status, customer_id) 
+	VALUES (NULL, '` + hashToken + `', current_timestamp(), 'login', (SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `'))
 	`).Scan(&result).Error
 
 	if err != nil {
@@ -202,6 +196,42 @@ func CreateCustomerKey(c echo.Context) error {
 	}
 	defer sql.Close()
 
-	fmt.Println(hashPassword)
+	return c.String(200, "Success")
+
+}
+
+func CreateCustomerKey(c echo.Context) error {
+	request := Helper.GetJSONRawBody(c)
+	var pwd string
+	var token string
+
+	var phoneNumber string
+	pwd += fmt.Sprintf("%s", request["customer_passcode"])
+	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
+	token += fmt.Sprintf("%s", request["token"])
+
+	if !Helper.CheckCustomerToken(token, phoneNumber) {
+		return echo.NewHTTPError(500, "token mismatch")
+	}
+
+	db := Service.InitialiedDb()
+
+	hashPassword := Helper.HashAndSalt(pwd)
+	var result interface{}
+
+	err2 := db.Raw(`
+	UPDATE Customer SET customer_passcode = '` + hashPassword + `' WHERE customer_phone_number = '` + phoneNumber + `'
+	`).Scan(&result).Error
+
+	if err2 != nil {
+		return echo.NewHTTPError(500, "create fail")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
 	return c.String(200, "Success")
 }
