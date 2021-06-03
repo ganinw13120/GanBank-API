@@ -110,7 +110,7 @@ func CreateStaff(c echo.Context) error {
 	INSERT INTO Staff (staff_id, branch_id, staff_firstname, staff_middlename, staff_lastname, 
 		position_id, staff_phone_number, staff_idcard_number, staff_district_id, staff_address, 
 		staff_address_name, staff_status, staff_gender, education_level_id, staff_auth_email, 
-		staff_auth_password) 
+		staff_auth_password, staff_birthday) 
 		VALUES (
 			NULL, 
 			'` + fmt.Sprintf("%.0f", request["branch_id"]) + `', 
@@ -127,7 +127,8 @@ func CreateStaff(c echo.Context) error {
 			'` + fmt.Sprintf("%s", request["gender"]) + `', 
 			'` + fmt.Sprintf("%.0f", request["education"]) + `', 
 			'` + fmt.Sprintf("%s", request["email"]) + `', 
-			'` + fmt.Sprintf("%s", request["password"]) + `'
+			'` + fmt.Sprintf("%s", request["password"]) + `',
+			'` + fmt.Sprintf("%s", request["birthday"]) + `'
 		)
 
 	`).Scan(&result).Error
@@ -179,27 +180,78 @@ func GetPosition(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.
 }
 
 func GetAllStaff(c echo.Context) error {
-	result := []map[string]interface{}{}
 
+	var wg sync.WaitGroup
+
+	start := time.Now()
 	db := Service.InitialiedDb()
-
-	err := db.Raw(`
-	SELECT * FROM Staff LEFT JOIN District ON Staff.staff_district_id=District.district_id
-	LEFT JOIN Amphur ON District.amphur_id=Amphur.amphur_id
-	LEFT JOIN Province ON Amphur.province_id=Province.province_id
-	LEFT JOIN Position ON Staff.position_id=Position.position_id
-	LEFT JOIN Branch ON Staff.branch_id=Branch.branch_id
-	`).Scan(&result).Error
-
-	if err != nil {
-		return echo.NewHTTPError(404, "not fond")
-	}
+	result := map[string][]map[string]interface{}{}
+	wg.Add(4)
+	go GetMonthDetail(db, result, &wg)
+	go GetStafflist(db, result, &wg)
+	go GetStaffOldestStaff(db, result, &wg)
+	go GetStaffYoungestStaff(db, result, &wg)
 
 	sql, err := db.DB()
 	if err != nil {
 		panic(err.Error())
 	}
+	wg.Wait()
 	defer sql.Close()
-
+	defer fmt.Println(time.Since(start))
 	return c.JSON(200, result)
+
+}
+func GetMonthDetail(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count FROM Staff WHERE MONTH(staff_birthday)=Month(now())
+	`).Scan(&result).Error
+	res["month_detail"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func GetStaffOldestStaff(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT DATEDIFF( now(),staff_birthday) as age FROM Staff ORDER BY DATEDIFF(staff_birthday, now()) LIMIT 1
+	`).Scan(&result).Error
+	res["staff_oldest"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetStaffYoungestStaff(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT DATEDIFF( now(),staff_birthday) as age FROM Staff ORDER BY DATEDIFF(staff_birthday, now()) DESC LIMIT 1
+	`).Scan(&result).Error
+	res["staff_youngest"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func GetStafflist(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT *,(SELECT COUNT(DISTINCT staff_id) FROM Staff a WHERE a.branch_id=Staff.branch_id) as staff_at_branch ,
+	(SELECT COUNT(DISTINCT staff_id) FROM Staff b WHERE b.position_id=Staff.position_id) as staff_at_position
+	FROM Staff 
+	LEFT JOIN District ON Staff.staff_district_id=District.district_id
+	LEFT JOIN Amphur ON District.amphur_id=Amphur.amphur_id
+	LEFT JOIN Province ON Amphur.province_id=Province.province_id
+	LEFT JOIN Position ON Staff.position_id=Position.position_id
+	LEFT JOIN Branch ON Staff.branch_id=Branch.branch_id
+	`).Scan(&result).Error
+	res["staff_list"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
 }

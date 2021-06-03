@@ -25,7 +25,7 @@ func main() {
 
 	cmsAccountGroup := cmsGroup.Group("/account")
 	cmsAccountGroup.POST("/create", Route.CreateAccount)
-	cmsAccountGroup.GET("/info", Route.GetAccount)
+	cmsAccountGroup.POST("/info", Route.GetAccount)
 	cmsAccountGroup.POST("/prepare", Route.PrepareAccount)
 
 	mobileAccountGroup := mobileGroup.Group("/account")
