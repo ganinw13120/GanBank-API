@@ -38,7 +38,36 @@ func GetAccountByID(c echo.Context) error {
 	ON b.branch_id = a.branch_id
 	WHERE a.account_no = '` + id + `'
 	`).Scan(&result).Error
+	if err != nil {
+		return echo.NewHTTPError(404, "not fond")
+	}
 
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
+}
+
+func GetAccountName(c echo.Context) error {
+	result := map[string]interface{}{}
+
+	db := Service.InitialiedDb()
+
+	request := Helper.GetJSONRawBody(c)
+
+	if request["account_no"] == nil {
+		return echo.NewHTTPError(500, "dont have account no")
+	}
+
+	id := fmt.Sprintf("%s", request["account_no"])
+
+	err := db.Raw(`
+	SELECT account_name FROM Account
+	WHERE account_no = '` + id + `'
+	`).Scan(&result).Error
 	if err != nil {
 		return echo.NewHTTPError(404, "not fond")
 	}

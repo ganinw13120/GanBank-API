@@ -27,6 +27,7 @@ func main() {
 	cmsAccountGroup.POST("/create", Route.CreateAccount)
 	cmsAccountGroup.POST("/info", Route.GetAccount)
 	cmsAccountGroup.POST("/prepare", Route.PrepareAccount)
+	cmsAccountGroup.POST("/name", Route.GetAccountName)
 
 	mobileAccountGroup := mobileGroup.Group("/account")
 	mobileAccountGroup.POST("/info", Route.GetAccountByID)
@@ -64,6 +65,9 @@ func main() {
 	cmsAddressGroup.POST("/province", Route.GetProvince)
 	cmsAddressGroup.POST("/amphur", Route.GetAmphur)
 	cmsAddressGroup.POST("/district", Route.GetDistrict)
+
+	cmsTransactionGroup := cmsGroup.Group("/transaction")
+	cmsTransactionGroup.POST("/create", Route.CreateTransaction)
 
 	e.Start(":8080")
 }
