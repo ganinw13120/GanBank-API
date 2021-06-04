@@ -20,17 +20,18 @@ func CreateTransaction(c echo.Context) error {
 	db := Service.InitialiedDb()
 	db = db.Begin()
 
-	// db.Rollback()
-
 	var wg sync.WaitGroup
 	amount, _ := strconv.ParseFloat(fmt.Sprintf("%s", request["transaction_amount"]), 64)
 	sign := "-"
+	if fmt.Sprintf("%s", request["transaction_type"]) == "3" && !CheckAvailableCash(db, amount, fmt.Sprintf("%s", request["account_no"])) {
+		return echo.NewHTTPError(500, "create fail")
+	}
 	if fmt.Sprintf("%s", request["transaction_type"]) == "1" {
 		sign = "+"
 	}
-	CheckAvailableCash(db, amount, fmt.Sprintf("%s", request["account_no"]))
+	fmt.Println("create success")
 	wg.Add(1)
-	go AdjustBalance(db, sign, amount, fmt.Sprintf("%s", request["account_no"]), &wg, isvalid)
+	go AdjustBalance(db, sign, amount, fmt.Sprintf("%s", request["account_no"]), &wg)
 	err := db.Raw(`
 		INSERT INTO Transaction (
 			transaction_amount,
@@ -45,15 +46,14 @@ func CreateTransaction(c echo.Context) error {
 			'` + fmt.Sprintf("%s", request["transaction_executor_name"]) + `'
 		)
 	`).Scan(&result).Error
-
 	if err != nil {
 		return echo.NewHTTPError(500, "create fail")
 	}
-
 	sql, err := db.DB()
 	if err != nil {
 		panic(err.Error())
 	}
+	fmt.Println("create success")
 	wg.Wait()
 	defer db.Commit()
 	defer sql.Close()
@@ -61,10 +61,10 @@ func CreateTransaction(c echo.Context) error {
 
 }
 
-func CheckAvailableCash(db *gorm.DB, amount float64, account_no string) bool {
-	result := []map[string]interface{}{}
+func CheckAvailableCash(db *gorm.DB, amount float64, accountNo string) bool {
+	var result bool
 	err := db.Raw(`
-		SELECT 
+	SELECT EXISTS(SELECT * FROM Account WHERE account_balance >= '` + fmt.Sprintf("%g", amount) + `' AND account_no = '` + accountNo + `') 
 	`).Scan(&result).Error
 	if err != nil {
 		fmt.Println(err)
@@ -72,11 +72,11 @@ func CheckAvailableCash(db *gorm.DB, amount float64, account_no string) bool {
 	return result
 }
 
-func AdjustBalance(db *gorm.DB, sign string, amount float64, account_no string, wg *sync.WaitGroup, isvalid chan<- bool) {
+func AdjustBalance(db *gorm.DB, sign string, amount float64, account_no string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
-		UPDATE Account SET account_balance=(account_balance` + sign + ` ` + fmt.Sprintf("%f", amount) + `)
+		UPDATE Account SET account_balance=(account_balance` + sign + ` ` + fmt.Sprintf("%f", amount) + `) WHERE account_no='` + account_no + `'
 	`).Scan(&result).Error
 	if err != nil {
 		fmt.Println(err)
