@@ -15,6 +15,7 @@ import (
 var wg sync.WaitGroup
 
 func checkAdequacyMoney(accountNo string, amount float64) bool {
+
 	var result bool
 	db := Service.InitialiedDb()
 	err := db.Raw(`
@@ -23,7 +24,7 @@ func checkAdequacyMoney(accountNo string, amount float64) bool {
 	if err != nil {
 		return false
 	}
-
+	fmt.Println(`SELECT EXISTS(SELECT * FROM Account WHERE account_balance >= '` + fmt.Sprintf("%g", amount) + `' AND account_no = '` + accountNo + `') `)
 	sql, err := db.DB()
 	if err != nil {
 		panic(err.Error())
@@ -34,15 +35,42 @@ func checkAdequacyMoney(accountNo string, amount float64) bool {
 }
 
 func Transfer(c echo.Context) error {
+
+	type Transaction struct {
+		Transaction_id              int       `gorm:"primaryKey"`
+		Transaction_amount          float64   `gorm:"column:transaction_amount"`
+		Transaction_account_no_to   int       `gorm:"column:transaction_account_no_to"`
+		Transaction_type_id         int       `gorm:"column:transaction_type_id"`
+		Transaction_timestamp       time.Time `gorm:"column:transaction_timestamp"`
+		Staff_id                    int       `gorm:"column:staff_id"`
+		Transaction_executor_name   string    `gorm:"column:transaction_executor_name"`
+		Transaction_account_no_from int       `gorm:"column:transaction_account_no_from"`
+		Transaction_bank_id_to      int       `gorm:"column:transaction_bank_id_to"`
+		Transaction_memo            string    `gorm:"column:transaction_memo"`
+		Period_id                   int       `gorm:"column:period_id"`
+		Transaction_bank_id_from    int       `gorm:"column:transaction_bank_id_from"`
+	}
+
 	request := Helper.GetJSONRawBody(c)
 	var accountNoFrom, accountNoTo, amount, phone, token, memo, bankIdTo string
-	accountNoFrom += fmt.Sprintf("%s", request["accountNoFrom"])
+	accountNoFrom += fmt.Sprintf("%g", request["accountNoFrom"].(float64))
 	accountNoTo += fmt.Sprintf("%s", request["accountNoTo"])
 	amount += fmt.Sprintf("%g", request["amount"].(float64))
 	phone += fmt.Sprintf("%s", request["phone"])
 	token += fmt.Sprintf("%s", request["token"])
 	memo += fmt.Sprintf("%s", request["memo"])
-	bankIdTo += fmt.Sprintf("%s", request["bank_id_to"])
+	bankIdTo += fmt.Sprintf("%g", request["bank_id_to"].(float64))
+
+	transfer := Transaction{
+		Transaction_amount:          request["amount"].(float64),
+		Transaction_account_no_to:   int(request["accountNoTo"].(float64)),
+		Transaction_type_id:         2,
+		Transaction_timestamp:       time.Now(),
+		Transaction_account_no_from: int(request["accountNoFrom"].(float64)),
+		Transaction_bank_id_to:      int(request["bank_id_to"].(float64)),
+		Transaction_memo:            request["memo"].(string),
+		Transaction_bank_id_from:    1,
+	}
 
 	if !Helper.CheckCustomerToken(token, phone) {
 		return echo.NewHTTPError(500, "token mismatch")
@@ -54,24 +82,20 @@ func Transfer(c echo.Context) error {
 
 	result := map[string]interface{}{}
 	db := Service.InitialiedDb()
-	err := db.Raw(`
-	INSERT INTO Transaction (transaction_id, transaction_amount, transaction_account_no_to, transaction_type_id, transaction_timestamp, staff_id, 
-		transaction_executor_name, transaction_account_no_from, transaction_bank_id_to, transaction_memo, period_id, transaction_bank_id_from) 
-		VALUES (
-			NULL, 
-			'` + amount + `', 
-			'` + accountNoTo + `',  
-			'2', 
-			current_timestamp(), 
-			NULL, 
-			NULL, 
-			'` + accountNoFrom + `',  
-			'` + bankIdTo + `',   
-			'` + accountNoFrom + `',   
-			'` + memo + `',
-			'1'
-		);
-		UPDATE Account SET account_balance = account_balance + ` + amount + ` WHERE account_no = '` + accountNoTo + `';
+
+	err := db.Table("Transaction").Create(&transfer).Error
+
+	if err != nil {
+		panic(err.Error())
+	}
+	err = db.Raw(`
+		UPDATE Account SET account_balance = account_balance + ` + amount + ` WHERE account_no = '` + accountNoTo + `'
+	`).Find(&result).Error
+	if err != nil {
+		panic(err.Error())
+	}
+
+	err = db.Raw(`
 		UPDATE Account SET account_balance = account_balance - ` + amount + ` WHERE account_no = '` + accountNoFrom + `';
 	`).Find(&result).Error
 	if err != nil {
@@ -84,7 +108,7 @@ func Transfer(c echo.Context) error {
 	}
 	defer sql.Close()
 
-	return c.String(200, "success")
+	return c.String(200, fmt.Sprintf("%d", transfer.Transaction_id))
 }
 
 func GetAccountByID(c echo.Context) error {
@@ -98,7 +122,12 @@ func GetAccountByID(c echo.Context) error {
 		return echo.NewHTTPError(500, "dont have account no")
 	}
 
+	if request["bank_id"] == nil {
+		return echo.NewHTTPError(500, "dont have bank id")
+	}
+
 	id := fmt.Sprintf("%s", request["account_no"])
+	bank_id := fmt.Sprintf("%g", request["bank_id"].(float64))
 
 	err := db.Raw(`
 	SELECT a.account_no, a.account_name, b.bank_name, b.bank_logo, b.bank_color
@@ -106,9 +135,10 @@ func GetAccountByID(c echo.Context) error {
 	INNER JOIN Bank AS b
 	ON a.bank_id = b.bank_id
 	WHERE a.account_no = '` + id + `'
-	`).Scan(&result).Error
+	AND a.bank_id = '` + bank_id + `'
+	`).Find(&result).Error
 
-	if err != nil {
+	if err != nil || len(result) == 0 {
 		return echo.NewHTTPError(404, "not fond")
 	}
 
