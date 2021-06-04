@@ -38,6 +38,7 @@ func main() {
 	mobileAccountGroup.POST("/info", Route.GetAccountByID)
 	mobileAccountGroup.POST("/infobycustomer", Route.GetAccountByCustomer)
 	mobileAccountGroup.POST("/transaction", Route.PrepareTransaction)
+	mobileAccountGroup.POST("/transfer", Route.Transfer)
 
 	mobileBankGroup := mobileGroup.Group("/bank")
 	mobileBankGroup.GET("/info", Route.GetBank)
