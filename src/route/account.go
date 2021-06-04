@@ -12,7 +12,20 @@ import (
 	"gorm.io/gorm"
 )
 
-var wg sync.WaitGroup
+type Transaction struct {
+	Transaction_id              int       `gorm:"primaryKey"`
+	Transaction_amount          float64   `gorm:"column:transaction_amount"`
+	Transaction_account_no_to   int       `gorm:"column:transaction_account_no_to"`
+	Transaction_type_id         int       `gorm:"column:transaction_type_id"`
+	Transaction_timestamp       time.Time `gorm:"column:transaction_timestamp"`
+	Staff_id                    int       `gorm:"column:staff_id"`
+	Transaction_executor_name   string    `gorm:"column:transaction_executor_name"`
+	Transaction_account_no_from int       `gorm:"column:transaction_account_no_from"`
+	Transaction_bank_id_to      int       `gorm:"column:transaction_bank_id_to"`
+	Transaction_memo            string    `gorm:"column:transaction_memo"`
+	Period_id                   int       `gorm:"column:period_id"`
+	Transaction_bank_id_from    int       `gorm:"column:transaction_bank_id_from"`
+}
 
 func checkAdequacyMoney(accountNo string, amount float64) bool {
 
@@ -34,32 +47,47 @@ func checkAdequacyMoney(accountNo string, amount float64) bool {
 	return result
 }
 
-func Transfer(c echo.Context) error {
-
-	type Transaction struct {
-		Transaction_id              int       `gorm:"primaryKey"`
-		Transaction_amount          float64   `gorm:"column:transaction_amount"`
-		Transaction_account_no_to   int       `gorm:"column:transaction_account_no_to"`
-		Transaction_type_id         int       `gorm:"column:transaction_type_id"`
-		Transaction_timestamp       time.Time `gorm:"column:transaction_timestamp"`
-		Staff_id                    int       `gorm:"column:staff_id"`
-		Transaction_executor_name   string    `gorm:"column:transaction_executor_name"`
-		Transaction_account_no_from int       `gorm:"column:transaction_account_no_from"`
-		Transaction_bank_id_to      int       `gorm:"column:transaction_bank_id_to"`
-		Transaction_memo            string    `gorm:"column:transaction_memo"`
-		Period_id                   int       `gorm:"column:period_id"`
-		Transaction_bank_id_from    int       `gorm:"column:transaction_bank_id_from"`
+func updateAccountBalance(accountNo string, amount string, db *gorm.DB, wg *sync.WaitGroup, isIncrease bool) {
+	defer wg.Done()
+	var operator string
+	if isIncrease {
+		operator = "+"
+	} else {
+		operator = "-"
 	}
+	result := map[string]interface{}{}
+	err := db.Raw(`
+		UPDATE Account SET account_balance = account_balance ` + operator + ` ` + amount + ` WHERE account_no = '` + accountNo + `'
+	`).Find(&result).Error
+	if err != nil {
+		panic(err.Error())
+	}
+}
 
+func createTrasaction(transfer *Transaction, db *gorm.DB, wg *sync.WaitGroup) {
+	defer wg.Done()
+	err := db.Table("Transaction").Create(&transfer).Error
+	if err != nil {
+		panic(err.Error())
+	}
+}
+
+func Transfer(c echo.Context) error {
 	request := Helper.GetJSONRawBody(c)
-	var accountNoFrom, accountNoTo, amount, phone, token, memo, bankIdTo string
+	var accountNoFrom, accountNoTo, amount, phone, token string
 	accountNoFrom += fmt.Sprintf("%g", request["accountNoFrom"].(float64))
 	accountNoTo += fmt.Sprintf("%s", request["accountNoTo"])
 	amount += fmt.Sprintf("%g", request["amount"].(float64))
 	phone += fmt.Sprintf("%s", request["phone"])
 	token += fmt.Sprintf("%s", request["token"])
-	memo += fmt.Sprintf("%s", request["memo"])
-	bankIdTo += fmt.Sprintf("%g", request["bank_id_to"].(float64))
+
+	if !Helper.CheckCustomerToken(token, phone) {
+		return echo.NewHTTPError(500, "token mismatch")
+	}
+
+	if !checkAdequacyMoney(accountNoFrom, request["amount"].(float64)) {
+		return echo.NewHTTPError(500, "เงินในบัญชีไม่เพียงพอต่อการทำรายการ")
+	}
 
 	transfer := Transaction{
 		Transaction_amount:          request["amount"].(float64),
@@ -72,35 +100,13 @@ func Transfer(c echo.Context) error {
 		Transaction_bank_id_from:    1,
 	}
 
-	if !Helper.CheckCustomerToken(token, phone) {
-		return echo.NewHTTPError(500, "token mismatch")
-	}
-
-	if !checkAdequacyMoney(accountNoFrom, request["amount"].(float64)) {
-		return echo.NewHTTPError(500, "insufficient money in the account")
-	}
-
-	result := map[string]interface{}{}
+	var wg sync.WaitGroup
+	wg.Add(3)
 	db := Service.InitialiedDb()
-
-	err := db.Table("Transaction").Create(&transfer).Error
-
-	if err != nil {
-		panic(err.Error())
-	}
-	err = db.Raw(`
-		UPDATE Account SET account_balance = account_balance + ` + amount + ` WHERE account_no = '` + accountNoTo + `'
-	`).Find(&result).Error
-	if err != nil {
-		panic(err.Error())
-	}
-
-	err = db.Raw(`
-		UPDATE Account SET account_balance = account_balance - ` + amount + ` WHERE account_no = '` + accountNoFrom + `';
-	`).Find(&result).Error
-	if err != nil {
-		panic(err.Error())
-	}
+	go createTrasaction(&transfer, db, &wg)
+	go updateAccountBalance(accountNoTo, amount, db, &wg, true)
+	go updateAccountBalance(accountNoFrom, amount, db, &wg, false)
+	wg.Wait()
 
 	sql, err := db.DB()
 	if err != nil {
@@ -130,7 +136,7 @@ func GetAccountByID(c echo.Context) error {
 	bank_id := fmt.Sprintf("%g", request["bank_id"].(float64))
 
 	err := db.Raw(`
-	SELECT a.account_no, a.account_name, b.bank_name, b.bank_logo, b.bank_color
+	SELECT a.account_no, a.account_name, b.bank_name, b.bank_logo, b.bank_color, b.bank_id
 	FROM Account AS a
 	INNER JOIN Bank AS b
 	ON a.bank_id = b.bank_id
@@ -152,6 +158,7 @@ func GetAccountByID(c echo.Context) error {
 }
 
 func PrepareTransaction(c echo.Context) error {
+	var wg sync.WaitGroup
 	start := time.Now()
 	db := Service.InitialiedDb()
 	request := Helper.GetJSONRawBody(c)
@@ -159,8 +166,8 @@ func PrepareTransaction(c echo.Context) error {
 	accountNo += fmt.Sprintf("%s", request["account_no"])
 	result := map[string][]map[string]interface{}{}
 	wg.Add(2)
-	go GetAccountIncomeAndOutcome(db, result, accountNo)
-	go GetAccountTransaction(db, result, accountNo)
+	go GetAccountIncomeAndOutcome(db, result, accountNo, &wg)
+	go GetAccountTransaction(db, result, accountNo, &wg)
 
 	sql, err := db.DB()
 	if err != nil {
@@ -172,7 +179,7 @@ func PrepareTransaction(c echo.Context) error {
 	return c.JSON(200, result)
 }
 
-func GetAccountIncomeAndOutcome(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string) {
+func GetAccountIncomeAndOutcome(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string, wg *sync.WaitGroup) {
 	result := []map[string]interface{}{}
 	defer wg.Done()
 	err := db.Raw(`
@@ -213,7 +220,7 @@ func GetAccountIncomeAndOutcome(db *gorm.DB, res map[string][]map[string]interfa
 
 }
 
-func GetAccountTransaction(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string) {
+func GetAccountTransaction(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string, wg *sync.WaitGroup) {
 	result := []map[string]interface{}{}
 	defer wg.Done()
 	err := db.Raw(`
@@ -338,74 +345,4 @@ func CreateAccount(c echo.Context) error {
 	defer sql.Close()
 
 	return c.String(200, "create success")
-}
-
-func PrepareAccount(c echo.Context) error {
-	start := time.Now()
-	db := Service.InitialiedDb()
-	result := map[string][]map[string]interface{}{}
-	wg.Add(5)
-	go GetBranchList(db, result)
-	go GetAccountType(db, result)
-	go GetCareer(db, result)
-	go GetEducationLevel(db, result)
-	go Helper.GetProvience(db, result, &wg)
-
-	sql, err := db.DB()
-	if err != nil {
-		panic(err.Error())
-	}
-	wg.Wait()
-	defer sql.Close()
-	defer fmt.Println(time.Since(start))
-	return c.JSON(200, result)
-}
-
-func GetBranchList(db *gorm.DB, res map[string][]map[string]interface{}) {
-	defer wg.Done()
-	result := []map[string]interface{}{}
-	err := db.Raw(`
-	SELECT branch_name FROM Branch
-	`).Scan(&result).Error
-	res["branch"] = result
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-func GetAccountType(db *gorm.DB, res map[string][]map[string]interface{}) {
-	defer wg.Done()
-	result := []map[string]interface{}{}
-	err := db.Raw(`
-	SELECT account_type_name FROM AccountType
-	`).Scan(&result).Error
-	res["account_type"] = result
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-func GetCareer(db *gorm.DB, res map[string][]map[string]interface{}) {
-	defer wg.Done()
-	result := []map[string]interface{}{}
-	err := db.Raw(`
-	SELECT career_name FROM Career
-	`).Scan(&result).Error
-	res["career"] = result
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-func GetEducationLevel(db *gorm.DB, res map[string][]map[string]interface{}) {
-	defer wg.Done()
-	result := []map[string]interface{}{}
-	err := db.Raw(`
-	SELECT education_level_name FROM EducationLevel
-	`).Scan(&result).Error
-	res["education_level"] = result
-	if err != nil {
-		fmt.Println(err)
-	}
-
 }
