@@ -22,17 +22,13 @@ func CreateTransaction(c echo.Context) error {
 
 	// db.Rollback()
 
-	isvalid := make(chan bool)
-
 	var wg sync.WaitGroup
 	amount, _ := strconv.ParseFloat(fmt.Sprintf("%s", request["transaction_amount"]), 64)
 	sign := "-"
 	if fmt.Sprintf("%s", request["transaction_type"]) == "1" {
 		sign = "+"
 	}
-	// CheckAvailableCash(db, amount, fmt.Sprintf("%s", request["account_no"]), isvalid)
-	success := <-isvalid
-	fmt.Println(success)
+	CheckAvailableCash(db, amount, fmt.Sprintf("%s", request["account_no"]))
 	wg.Add(1)
 	go AdjustBalance(db, sign, amount, fmt.Sprintf("%s", request["account_no"]), &wg, isvalid)
 	err := db.Raw(`
@@ -59,15 +55,21 @@ func CreateTransaction(c echo.Context) error {
 		panic(err.Error())
 	}
 	wg.Wait()
-	fmt.Println(success)
-	if !success {
-		// db.Rollback()
-		return c.String(200, "create failed for some reason")
-	}
 	defer db.Commit()
 	defer sql.Close()
 	return c.String(200, "create success")
 
+}
+
+func CheckAvailableCash(db *gorm.DB, amount float64, account_no string) bool {
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+		SELECT 
+	`).Scan(&result).Error
+	if err != nil {
+		fmt.Println(err)
+	}
+	return result
 }
 
 func AdjustBalance(db *gorm.DB, sign string, amount float64, account_no string, wg *sync.WaitGroup, isvalid chan<- bool) {
