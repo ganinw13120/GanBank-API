@@ -14,6 +14,79 @@ import (
 
 var wg sync.WaitGroup
 
+func checkAdequacyMoney(accountNo string, amount float64) bool {
+	var result bool
+	db := Service.InitialiedDb()
+	err := db.Raw(`
+	SELECT EXISTS(SELECT * FROM Account WHERE account_balance >= '` + fmt.Sprintf("%g", amount) + `' AND account_no = '` + accountNo + `') 
+	`).Find(&result).Error
+	if err != nil {
+		return false
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return result
+}
+
+func Transfer(c echo.Context) error {
+	request := Helper.GetJSONRawBody(c)
+	var accountNoFrom, accountNoTo, amount, phone, token, memo, bankIdTo string
+	accountNoFrom += fmt.Sprintf("%s", request["accountNoFrom"])
+	accountNoTo += fmt.Sprintf("%s", request["accountNoTo"])
+	amount += fmt.Sprintf("%g", request["amount"].(float64))
+	phone += fmt.Sprintf("%s", request["phone"])
+	token += fmt.Sprintf("%s", request["token"])
+	memo += fmt.Sprintf("%s", request["memo"])
+	bankIdTo += fmt.Sprintf("%s", request["bank_id_to"])
+
+	if !Helper.CheckCustomerToken(token, phone) {
+		return echo.NewHTTPError(500, "token mismatch")
+	}
+
+	if !checkAdequacyMoney(accountNoFrom, request["amount"].(float64)) {
+		return echo.NewHTTPError(500, "insufficient money in the account")
+	}
+
+	result := map[string]interface{}{}
+	db := Service.InitialiedDb()
+	err := db.Raw(`
+	INSERT INTO Transaction (transaction_id, transaction_amount, transaction_account_no_to, transaction_type_id, transaction_timestamp, staff_id, 
+		transaction_executor_name, transaction_account_no_from, transaction_bank_id_to, transaction_memo, period_id, transaction_bank_id_from) 
+		VALUES (
+			NULL, 
+			'` + amount + `', 
+			'` + accountNoTo + `',  
+			'2', 
+			current_timestamp(), 
+			NULL, 
+			NULL, 
+			'` + accountNoFrom + `',  
+			'` + bankIdTo + `',   
+			'` + accountNoFrom + `',   
+			'` + memo + `',
+			'1'
+		);
+		UPDATE Account SET account_balance = account_balance + ` + amount + ` WHERE account_no = '` + accountNoTo + `';
+		UPDATE Account SET account_balance = account_balance - ` + amount + ` WHERE account_no = '` + accountNoFrom + `';
+	`).Find(&result).Error
+	if err != nil {
+		panic(err.Error())
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.String(200, "success")
+}
+
 func GetAccountByID(c echo.Context) error {
 	result := map[string]interface{}{}
 
@@ -28,16 +101,10 @@ func GetAccountByID(c echo.Context) error {
 	id := fmt.Sprintf("%s", request["account_no"])
 
 	err := db.Raw(`
-	SELECT a.account_no, a.account_name, a.account_balance, a.account_timestamp, t.account_type_name, t.account_type_interest_rate, b.branch_name, c.customer_firstname, c.customer_middlename, c.customer_lastname
+	SELECT a.account_no, a.account_name, b.bank_name, b.bank_logo, b.bank_color
 	FROM Account AS a
-	INNER JOIN AccountType AS t
-	ON a.account_type_id = t.account_type_id
-	INNER JOIN AccountOwner AS o
-	ON o.account_no = a.account_no
-	INNER JOIN Customer AS c
-	ON c.customer_id = o.customer_id
-	INNER JOIN Branch AS b
-	ON b.branch_id = a.branch_id
+	INNER JOIN Bank AS b
+	ON a.bank_id = b.bank_id
 	WHERE a.account_no = '` + id + `'
 	`).Scan(&result).Error
 
@@ -107,7 +174,7 @@ func GetAccountIncomeAndOutcome(db *gorm.DB, res map[string][]map[string]interfa
 		WHERE tran.transaction_account_no_from = '` + accountNo + `' 
 		AND tran.transaction_type_id != 1
 		   ) AS outcome_all
-	`).Scan(&result).Error
+	`).Find(&result).Error
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -136,7 +203,7 @@ func GetAccountTransaction(db *gorm.DB, res map[string][]map[string]interface{},
 	AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
 	AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
 	ORDER BY transaction_timestamp DESC
-	`).Scan(&result).Error
+	`).Find(&result).Error
 	if err != nil {
 		fmt.Println(err)
 	}

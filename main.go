@@ -26,6 +26,8 @@ func main() {
 	mobileCustomerGroup.POST("/haskey", Route.HasCustomerKey)
 	mobileCustomerGroup.POST("/createkey", Route.CreateCustomerKey)
 	mobileCustomerGroup.POST("/createsession", Route.CreateCustomerSession)
+	mobileCustomerGroup.POST("/signout", Route.SignoutCustomerSession)
+	mobileCustomerGroup.POST("/hassession", Route.HasCustomerSession)
 
 	cmsAccountGroup := cmsGroup.Group("/account")
 	cmsAccountGroup.POST("/create", Route.CreateAccount)

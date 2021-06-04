@@ -31,11 +31,12 @@ func CheckCustomerToken(token string, phoneNumber string) bool {
 	SELECT customer_session_token FROM CustomerSession 
 	WHERE customer_id = (SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `')
 	AND customer_session_status = 'login'
+	AND customer_session_timestamp > DATE_ADD(CURRENT_TIMESTAMP(), INTERVAL -30 MINUTE)
 	ORDER BY customer_session_timestamp DESC
 	LIMIT 1
 	`).Scan(&hashToken).Error
 
-	if err != nil || !ComparePasswords(hashToken, token) {
+	if err != nil {
 		return false
 	}
 
@@ -45,5 +46,5 @@ func CheckCustomerToken(token string, phoneNumber string) bool {
 	}
 	defer sql.Close()
 
-	return true
+	return ComparePasswords(hashToken, token)
 }
