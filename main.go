@@ -77,6 +77,19 @@ func main() {
 
 	cmsTransactionGroup := cmsGroup.Group("/transaction")
 	cmsTransactionGroup.POST("/create", Route.CreateTransaction)
+	cmsTransactionGroup.POST("/transfer", Route.CreateTransferTransaction)
+	cmsTransactionGroup.POST("/info", Route.GetAllTransaction)
+	cmsTransactionGroup.POST("/prepare", Route.GetAllBank)
+
+	cmsLoanGroup := cmsGroup.Group("/loan")
+	cmsLoanGroup.POST("/prepare", Route.GetPrepareLoan)
+	cmsLoanGroup.POST("/create", Route.CreateLoan)
+	cmsLoanGroup.POST("/info", Route.GetAllLoan)
+	cmsLoanGroup.POST("/find", Route.GetLoanByID)
+	cmsLoanGroup.POST("/update", Route.UpdateLoanStatus)
+
+	cmsAuthGroup := cmsGroup.Group("/auth")
+	cmsAuthGroup.POST("/login", Route.Login)
 
 	e.Start(":8080")
 }
