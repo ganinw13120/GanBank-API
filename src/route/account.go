@@ -196,13 +196,6 @@ func CreateBankAccount(db *gorm.DB, req map[string]interface{}, wg *sync.WaitGro
 		Account_type string `gorm:"column:account_type_id"`
 		Branch       string `gorm:"column:branch_id"`
 	}
-	// db.Raw(`
-	// 	INSERT INTO Account (account_name, account_type_id, branch_id) VALUES (
-	// 		'` + fmt.Sprintf("%s", req["account_name"]) + `',
-	// 		'` + fmt.Sprintf("%.0f", req["account_type_selected"]) + `',
-	// 		'` + fmt.Sprintf("%.0f", req["branch_selected"]) + `'
-	// 	)
-	// `)
 	new_account := Account{
 		Account_name: fmt.Sprintf("%s", req["account_name"]),
 		Account_type: fmt.Sprintf("%.0f", req["account_type_selected"]),
