@@ -370,6 +370,7 @@ func GetAccountByCustomer(c echo.Context) error {
 	   WHERE a.account_no IN (
 		SELECT DISTINCT(account_no) FROM AccountOwner WHERE customer_id = (SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `')
 	   )
+	   AND a.account_status = 'active'
 	`).Find(&result).Error
 	if err != nil {
 		return echo.NewHTTPError(404, "not fond")
