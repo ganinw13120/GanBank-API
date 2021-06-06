@@ -3,10 +3,12 @@ package Route
 import (
 	Helper "GANBANKING_API/src/helper"
 	Service "GANBANKING_API/src/service"
+	"sync"
 
 	"fmt"
 
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 func DeleteBranch(c echo.Context) error {
@@ -118,20 +120,18 @@ func CreateBranch(c echo.Context) error {
 }
 
 func GetAllBranch(c echo.Context) error {
-	result := []map[string]interface{}{}
+	result := map[string][]map[string]interface{}{}
 
+	var wg sync.WaitGroup
 	db := Service.InitialiedDb()
 
-	err := db.Raw(`
-	SELECT * FROM Branch LEFT JOIN District ON Branch.district_id=District.district_id
-	LEFT JOIN Amphur ON District.amphur_id=Amphur.amphur_id
-	LEFT JOIN Province ON Amphur.province_id=Province.province_id
-	`).Scan(&result).Error
-
-	if err != nil {
-		return echo.NewHTTPError(404, "not fond")
-	}
-
+	wg.Add(5)
+	go GetBranchCount(db, result, &wg)
+	go GetBranchListConcurrent(db, result, &wg)
+	go GetBranchAmount_Transfer(db, result, &wg)
+	go GetBranchAmount_Deposit(db, result, &wg)
+	go GetBranchAmount_Withdraw(db, result, &wg)
+	wg.Wait()
 	sql, err := db.DB()
 	if err != nil {
 		panic(err.Error())
@@ -141,6 +141,76 @@ func GetAllBranch(c echo.Context) error {
 	return c.JSON(200, result)
 }
 
+func GetBranchCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count FROM Branch
+	`).Scan(&result).Error
+	res["branch_list"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetBranchListConcurrent(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count  FROM Branch
+	`).Scan(&result).Error
+	res["branch_count"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetBranchAmount_Transfer(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT Branch.branch_name, SUM(transaction_amount) as sum  FROM Transaction 
+	LEFT JOIN Staff ON Staff.staff_id=Transaction.staff_id
+	LEFT JOIN Branch ON Staff.branch_id=Branch.branch_id
+	WHERE Transaction.transaction_type_id='2' 
+    GROUP BY Branch.branch_id
+	ORDER BY SUM(transaction_amount) LIMIT 1
+	`).Scan(&result).Error
+	res["transfer"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetBranchAmount_Deposit(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT Branch.branch_name, SUM(transaction_amount) as sum  FROM Transaction 
+	LEFT JOIN Staff ON Staff.staff_id=Transaction.staff_id
+	LEFT JOIN Branch ON Staff.branch_id=Branch.branch_id
+	WHERE Transaction.transaction_type_id='1'
+    GROUP BY Branch.branch_id
+	ORDER BY SUM(transaction_amount) LIMIT 1
+	`).Scan(&result).Error
+	res["deposit"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetBranchAmount_Withdraw(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT Branch.branch_name, SUM(transaction_amount)  as sum FROM Transaction 
+	LEFT JOIN Staff ON Staff.staff_id=Transaction.staff_id
+	LEFT JOIN Branch ON Staff.branch_id=Branch.branch_id
+	WHERE Transaction.transaction_type_id='3'
+    GROUP BY Branch.branch_id
+	ORDER BY SUM(transaction_amount) LIMIT 1
+	`).Scan(&result).Error
+	res["withdraw"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
 func DeleteBranchByID(c echo.Context) error {
 	result := map[string]interface{}{}
 	db := Service.InitialiedDb()

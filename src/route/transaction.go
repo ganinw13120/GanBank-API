@@ -5,7 +5,6 @@ import (
 	Service "GANBANKING_API/src/service"
 	"strconv"
 	"sync"
-	"time"
 
 	"fmt"
 
@@ -17,10 +16,12 @@ func CreateTransaction(c echo.Context) error {
 	result := []map[string]interface{}{}
 
 	request := Helper.GetJSONRawBody(c)
-
 	db := Service.InitialiedDb()
 	db = db.Begin()
-
+	isTokenValid, staff_id, _, _ := CheckSessionToken(db, fmt.Sprintf("%s", request["token"]))
+	if !isTokenValid {
+		return echo.NewHTTPError(500, "Token mismatch")
+	}
 	var wg sync.WaitGroup
 	amount, _ := strconv.ParseFloat(fmt.Sprintf("%s", request["transaction_amount"]), 64)
 	sign := "-"
@@ -38,13 +39,15 @@ func CreateTransaction(c echo.Context) error {
 			transaction_amount,
 			transaction_account_no_from,
 			transaction_type_id,
-			transaction_executor_name
+			transaction_executor_name,
+			staff_id
 		)
 		VALUES (
 			'` + fmt.Sprintf("%s", request["transaction_amount"]) + `',
 			'` + fmt.Sprintf("%s", request["account_no"]) + `',
 			'` + fmt.Sprintf("%s", request["transaction_type"]) + `',
-			'` + fmt.Sprintf("%s", request["transaction_executor_name"]) + `'
+			'` + fmt.Sprintf("%s", request["transaction_executor_name"]) + `',
+			'` + fmt.Sprintf("%d", staff_id) + `'
 		)
 	`).Scan(&result).Error
 	if err != nil {
@@ -69,6 +72,10 @@ func CreateTransferTransaction(c echo.Context) error {
 
 	db := Service.InitialiedDb()
 	db = db.Begin()
+	isTokenValid, staff_id, _, _ := CheckSessionToken(db, fmt.Sprintf("%s", request["token"]))
+	if !isTokenValid {
+		return echo.NewHTTPError(500, "Token mismatch")
+	}
 
 	var wg sync.WaitGroup
 	amount, _ := strconv.ParseFloat(fmt.Sprintf("%s", request["amount"]), 64)
@@ -89,14 +96,16 @@ func CreateTransferTransaction(c echo.Context) error {
 			transaction_account_no_from,
 			transaction_bank_id_to,
 			transaction_type_id,
-			transaction_executor_name
+			transaction_executor_name,
+			staff_id
 		)
 		VALUES (
 			'` + fmt.Sprintf("%s", request["amount"]) + `',
 			'` + fmt.Sprintf("%s", request["dest_no"]) + `',
 			'` + fmt.Sprintf("%s", request["origin_no"]) + `',
 			'` + fmt.Sprintf("%.0f", request["bank"]) + `', 2 ,
-			'` + excecutor_name + `'
+			'` + excecutor_name + `',
+			'` + fmt.Sprintf("%d", staff_id) + `'
 		)
 	`).Scan(&result).Error
 	if err != nil {
@@ -137,29 +146,130 @@ func AdjustBalance(db *gorm.DB, sign string, amount float64, account_no string, 
 }
 
 func GetAllTransaction(c echo.Context) error {
-	type Transaction struct {
-		ID        int       `gorm:"column:transaction_id"`
-		Amount    string    `gorm:"column:transaction_amount"`
-		TimeStamp time.Time `gorm:"column:transaction_timestamp"`
-		Branch    string    `gorm:"column:branch_id"`
-		Typename  string    `gorm:"column:transaction_type_name"`
-	}
-	result := []Transaction{}
+	result := map[string][]map[string]interface{}{}
+
+	var wg sync.WaitGroup
 	db := Service.InitialiedDb()
-	err := db.Raw(`
-		SELECT * FROM Transaction LEFT JOIN TransactionType ON Transaction.transaction_type_id=TransactionType.transaction_type_id ORDER BY transaction_id DESC
-	`).Find(&result).Error
-	if err != nil {
-		return echo.NewHTTPError(404, "not fond")
-	}
+
+	wg.Add(9)
+	go GetTransactionList(db, result, &wg)
+	go GetTransactionCountThisMonth(db, result, &wg)
+	go GetTransactionCount(db, result, &wg)
+	go GetTransactionWithdrawThisMonth(db, result, &wg)
+	go GetTransactionWithdraw(db, result, &wg)
+	go GetTransactionDepositThisMonth(db, result, &wg)
+	go GetTransactionDeposit(db, result, &wg)
+	go GetTransactionTransferThisMonth(db, result, &wg)
+	go GetTransactionTransfer(db, result, &wg)
+	wg.Wait()
 	sql, err := db.DB()
 	if err != nil {
 		panic(err.Error())
 	}
 	defer sql.Close()
+
 	return c.JSON(200, result)
 }
 
+func GetTransactionList(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT * FROM Transaction LEFT JOIN TransactionType ON TransactionType.transaction_type_id=Transaction.transaction_type_id
+	`).Scan(&result).Error
+	res["transaction_list"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetTransactionCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count FROM Transaction 
+	`).Scan(&result).Error
+	res["transaction_count"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetTransactionCountThisMonth(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count  FROM Transaction WHERE MONTH(transaction_timestamp)=Month(now())
+	`).Scan(&result).Error
+	res["transaction_count_this_month"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetTransactionTransfer(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count  FROM Transaction WHERE transaction_type_id='2'
+	`).Scan(&result).Error
+	res["transfer"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetTransactionTransferThisMonth(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count  FROM Transaction WHERE MONTH(transaction_timestamp)=Month(now()) AND transaction_type_id='2'
+	`).Scan(&result).Error
+	res["transfer_this_month"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetTransactionDeposit(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count  FROM Transaction WHERE transaction_type_id='1'
+	`).Scan(&result).Error
+	res["deposit"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetTransactionDepositThisMonth(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count  FROM Transaction WHERE MONTH(transaction_timestamp)=Month(now()) AND transaction_type_id='1'
+	`).Scan(&result).Error
+	res["deposit_this_month"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetTransactionWithdraw(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count FROM Transaction WHERE transaction_type_id='3'
+	`).Scan(&result).Error
+	res["withdraw"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetTransactionWithdrawThisMonth(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count  FROM Transaction WHERE MONTH(transaction_timestamp)=Month(now()) AND transaction_type_id='3'
+	`).Scan(&result).Error
+	res["withdraw_this_month"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
 func GetAllBank(c echo.Context) error {
 	result := []map[string]interface{}{}
 
