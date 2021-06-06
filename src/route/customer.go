@@ -171,7 +171,9 @@ func HasCustomerKey(c echo.Context) error {
 	statement := `
 		SELECT EXISTS(SELECT * 
 		FROM Customer 
-		WHERE customer_passcode IS NOT NULL) 
+		WHERE customer_passcode IS NOT NULL
+		AND customer_phone_number = '`+phoneNumber+`'
+		) 
 	`
 
 	db := Service.InitialiedDb()
