@@ -126,8 +126,8 @@ func GetAllBranch(c echo.Context) error {
 	db := Service.InitialiedDb()
 
 	wg.Add(5)
-	go GetBranchCount(db, result, &wg)
-	go GetBranchListConcurrent(db, result, &wg)
+	go GetBranchListAll(db, result, &wg)
+	go GetBranchListCount(db, result, &wg)
 	go GetBranchAmount_Transfer(db, result, &wg)
 	go GetBranchAmount_Deposit(db, result, &wg)
 	go GetBranchAmount_Withdraw(db, result, &wg)
@@ -141,18 +141,21 @@ func GetAllBranch(c echo.Context) error {
 	return c.JSON(200, result)
 }
 
-func GetBranchCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+func GetBranchListAll(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
-	SELECT COUNT(*) as count FROM Branch
+	SELECT * FROM Branch
+	LEFT JOIN District ON Branch.district_id=District.district_id
+	LEFT JOIN Amphur ON District.amphur_id=Amphur.amphur_id
+	LEFT JOIN Province ON Amphur.province_id=Province.province_id
 	`).Scan(&result).Error
 	res["branch_list"] = result
 	if err != nil {
 		fmt.Println(err)
 	}
 }
-func GetBranchListConcurrent(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+func GetBranchListCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
