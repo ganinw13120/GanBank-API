@@ -34,7 +34,7 @@ func CheckCustomerToken(token string, phoneNumber string) bool {
 	AND customer_session_timestamp > DATE_ADD(CURRENT_TIMESTAMP(), INTERVAL -30 MINUTE)
 	ORDER BY customer_session_timestamp DESC
 	LIMIT 1
-	`).Scan(&hashToken).Error
+	`).Find(&hashToken).Error
 
 	if err != nil {
 		return false

@@ -28,6 +28,7 @@ func main() {
 	mobileCustomerGroup.POST("/createsession", Route.CreateCustomerSession)
 	mobileCustomerGroup.POST("/signout", Route.SignoutCustomerSession)
 	mobileCustomerGroup.POST("/hassession", Route.HasCustomerSession)
+	mobileCustomerGroup.POST("/qrcode", Route.GetQrcode)
 
 	cmsAccountGroup := cmsGroup.Group("/account")
 	cmsAccountGroup.POST("/create", Route.CreateAccount)
@@ -40,6 +41,8 @@ func main() {
 	mobileAccountGroup.POST("/infobycustomer", Route.GetAccountByCustomer)
 	mobileAccountGroup.POST("/transaction", Route.PrepareTransaction)
 	mobileAccountGroup.POST("/transfer", Route.Transfer)
+	mobileAccountGroup.POST("/infobyqrcode", Route.GetInfoByQrcode)
+	mobileAccountGroup.POST("/lasttransfer", Route.GetLastedTransfer)
 
 	mobileBankGroup := mobileGroup.Group("/bank")
 	mobileBankGroup.GET("/info", Route.GetBank)
