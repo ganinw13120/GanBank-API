@@ -93,3 +93,17 @@ func GetName(db *gorm.DB, staff_id string) (string, string, string, string) {
 	}
 	return fmt.Sprintf("%s", result["staff_prefix"]), fmt.Sprintf("%s", result["staff_firstname"]), fmt.Sprintf("%s", result["staff_middlename"]), fmt.Sprintf("%s", result["staff_lastname"])
 }
+
+func CheckSessionToken(db *gorm.DB, token string) (bool, int64, int64, string) {
+	result := map[string]interface{}{}
+	err := db.Raw(`
+	SELECT Staff.staff_id, branch_id, level FROM StaffSession 
+        LEFT JOIN Staff ON StaffSession.staff_id=Staff.staff_id
+        LEFT JOIN Position ON Staff.position_id=Position.position_id
+        WHERE StaffSession.staff_session_token='` + token + `'
+	`).Take(&result).Error
+	if err != nil {
+		return false, 0, 0, ""
+	}
+	return true, result["staff_id"].(int64), result["branch_id"].(int64), result["level"].(string)
+}
