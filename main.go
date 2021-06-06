@@ -34,6 +34,8 @@ func main() {
 	cmsAccountGroup.POST("/info", Route.GetAccount)
 	cmsAccountGroup.POST("/prepare", Route.PrepareAccount)
 	cmsAccountGroup.POST("/name", Route.GetAccountName)
+	cmsAccountGroup.POST("/suspend", Route.SuspendAccount)
+	cmsAccountGroup.POST("/edit", Route.EditAccount)
 
 	mobileAccountGroup := mobileGroup.Group("/account")
 	mobileAccountGroup.POST("/info", Route.GetAccountByID)
@@ -49,9 +51,11 @@ func main() {
 
 	cmsBranchGroup := cmsGroup.Group("/branch")
 	cmsBranchGroup.POST("/create", Route.CreateBranch)
+	cmsBranchGroup.POST("/edit", Route.EditBranch)
 	cmsBranchGroup.PUT("/update", Route.UpdateBranch)
 	cmsBranchGroup.DELETE("/delete", Route.DeleteBranch)
 	cmsBranchGroup.POST("/info", Route.GetAllBranch)
+	cmsBranchGroup.POST("/deleteid", Route.DeleteBranchByID)
 
 	cmsPositionGroup := cmsGroup.Group("/position")
 	cmsPositionGroup.POST("/create", Route.CreatePosition)
@@ -61,12 +65,15 @@ func main() {
 	cmsPromotionGroup := cmsGroup.Group("/promotion")
 	cmsPromotionGroup.POST("/create", Route.CreatePromotion)
 	cmsPromotionGroup.PUT("/update", Route.UpdatePromotion)
-	cmsPromotionGroup.DELETE("/delete", Route.DeletePromotion)
+	cmsPromotionGroup.POST("/delete", Route.DeletePromotion)
+	cmsPromotionGroup.POST("/get", Route.GetPromotion)
+	cmsPromotionGroup.POST("/getbyid", Route.GetPromotionByID)
 
 	cmsStaffGroup := cmsGroup.Group("/staff")
 	cmsStaffGroup.POST("/create", Route.CreateStaff)
+	cmsStaffGroup.POST("/edit", Route.EditStaff)
 	cmsStaffGroup.PUT("/update", Route.UpdateStaff)
-	cmsStaffGroup.DELETE("/delete", Route.DeleteStaff)
+	cmsStaffGroup.POST("/delete", Route.DeleteStaff)
 	cmsStaffGroup.POST("/prepare", Route.GetPrepareStaff)
 	cmsStaffGroup.POST("/info", Route.GetAllStaff)
 
@@ -90,6 +97,10 @@ func main() {
 
 	cmsAuthGroup := cmsGroup.Group("/auth")
 	cmsAuthGroup.POST("/login", Route.Login)
+	cmsAuthGroup.POST("/check", Route.CheckSession)
+
+	cmsCustomerGroup := cmsGroup.Group("/customer")
+	cmsCustomerGroup.POST("/info", Route.GetAllCustomer)
 
 	e.Start(":8080")
 }

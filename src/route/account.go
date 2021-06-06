@@ -314,27 +314,22 @@ func GetAccountName(c echo.Context) error {
 }
 
 func GetAccount(c echo.Context) error {
-	result := []map[string]interface{}{}
+
+	var wg sync.WaitGroup
+
+	result := map[string][]map[string]interface{}{}
 
 	db := Service.InitialiedDb()
 
-	err := db.Raw(`
-	SELECT a.account_no, a.account_name, a.account_balance, a.account_timestamp, t.account_type_name, t.account_type_interest_rate, b.branch_name, c.customer_firstname, c.customer_middlename, c.customer_lastname
-	FROM Account AS a
-	INNER JOIN AccountType AS t
-	ON a.account_type_id = t.account_type_id
-	INNER JOIN AccountOwner AS o
-	ON o.account_no = a.account_no
-	INNER JOIN Customer AS c
-	ON c.customer_id = o.customer_id
-	INNER JOIN Branch AS b
-	ON b.branch_id = a.branch_id
-	`).Scan(&result).Error
-
-	if err != nil {
-		return echo.NewHTTPError(404, "not fond")
-	}
-
+	wg.Add(7)
+	go GetAccountList(db, result, &wg)
+	go GetSuspendAccountCount(db, result, &wg)
+	go GetActiveAccountCount(db, result, &wg)
+	go GetAccountCountThisMonth(db, result, &wg)
+	go GetAccountCount(db, result, &wg)
+	go GetMostAccountType(db, result, &wg)
+	go GetTotalDepositAmount(db, result, &wg)
+	wg.Wait()
 	sql, err := db.DB()
 	if err != nil {
 		panic(err.Error())
@@ -342,6 +337,90 @@ func GetAccount(c echo.Context) error {
 	defer sql.Close()
 
 	return c.JSON(200, result)
+}
+
+func GetAccountList(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT * FROM Account
+	LEFT JOIN AccountType ON Account.account_type_id=AccountType.account_type_id
+	LEFT JOIN Branch ON Account.branch_id=Branch.branch_id
+	ORDER BY account_no DESC
+	`).Scan(&result).Error
+	res["account_list"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func GetAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count FROM Account
+	`).Scan(&result).Error
+	res["account_count"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func GetAccountCountThisMonth(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count  FROM Account  WHERE MONTH(account_timestamp)=Month(now())
+	`).Scan(&result).Error
+	res["account_count_this_month"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func GetMostAccountType(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT account_type_name, COUNT(*) as count  FROM Account LEFT JOIN AccountType ON Account.account_type_id=AccountType.account_type_id GROUP BY Account.account_type_id ORDER BY COUNT(*) DESC LIMIT 1
+	`).Scan(&result).Error
+	res["most_account_type"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetActiveAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*)  as count FROM Account  WHERE account_status='active'
+	`).Scan(&result).Error
+	res["active"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetSuspendAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT COUNT(*) as count  FROM Account  WHERE account_status='suspended'
+	`).Scan(&result).Error
+	res["suspend"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+func GetTotalDepositAmount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	result := []map[string]interface{}{}
+	err := db.Raw(`
+	SELECT SUM(account_balance) as sum,AVG(account_balance) as avg FROM Account WHERE account_status='active' AND account_balance>0
+	`).Scan(&result).Error
+	res["deposit"] = result
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func CreateAccount(c echo.Context) error {
@@ -599,4 +678,53 @@ func GetEducationLevel(db *gorm.DB, res map[string][]map[string]interface{}, wg 
 	if err != nil {
 		fmt.Println(err)
 	}
+}
+
+func SuspendAccount(c echo.Context) error {
+	result := map[string]interface{}{}
+	db := Service.InitialiedDb()
+
+	request := Helper.GetJSONRawBody(c)
+	fmt.Println(fmt.Sprintf("%s", request["id"]))
+	err := db.Raw(`
+	UPDATE Account SET account_status='suspended' WHERE account_no='` + fmt.Sprintf("%s", request["id"]) + `'
+	`).Find(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(404, "not fond")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
+}
+
+func EditAccount(c echo.Context) error {
+	result := map[string]interface{}{}
+	db := Service.InitialiedDb()
+
+	request := Helper.GetJSONRawBody(c)
+	err := db.Raw(`
+	UPDATE Account SET 
+	branch_id='` + fmt.Sprintf("%.0f", request["branch_selected"]) + `' , 
+	account_type_id='` + fmt.Sprintf("%.0f", request["account_type_selected"]) + `' , 
+	account_name='` + fmt.Sprintf("%s", request["account_name"]) + `' 
+	WHERE account_no='` + fmt.Sprintf("%s", request["account_no"]) + `'
+	`).Find(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(404, "เกิดข้อผิดพลาด")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
 }

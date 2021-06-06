@@ -112,15 +112,16 @@ func CreateLoan(c echo.Context) error {
 				case float64:
 					property_info[key] = fmt.Sprintf("%.0f", val)
 				case []interface{}:
+					fmt.Println(val)
 					for _, name := range val.([]interface{}) {
 						wg.Add(1)
-						go InsertPropertyOwner(db, name.(string), &wg, property_id)
+						go InsertPropertyOwner(db, fmt.Sprintf("%s", name), &wg, property_id)
 						owner_amount += 1
 					}
 				}
 			}
 			wg.Add(1)
-			InsertProperty(db, property_info, &wg, property_id, owner_amount, loan_id)
+			go InsertProperty(db, property_info, &wg, property_id, owner_amount, loan_id)
 		}
 	default:
 		fmt.Println("No guarantor infomation...")
@@ -151,7 +152,7 @@ func CreateLoan(c echo.Context) error {
 				}
 			}
 			wg.Add(1)
-			InsertGuarantee(db, other_info, &wg, guarantee_id, owner_amount, loan_id)
+			go InsertGuarantee(db, other_info, &wg, guarantee_id, owner_amount, loan_id)
 		}
 	default:
 		fmt.Println("No guarantee infomation...")
@@ -242,7 +243,7 @@ func InsertGuarantor(db *gorm.DB, data map[string]string, wg *sync.WaitGroup, lo
 			guarantor_email,
 			guarantor_income,
 			guarantor_outcome,
-			guarantor_district_id,
+			district_id,
 			guarantor_address,
 			guarantor_address_name,
 			guarantor_relation_id,
@@ -255,13 +256,13 @@ func InsertGuarantor(db *gorm.DB, data map[string]string, wg *sync.WaitGroup, lo
 			'` + data["idcard"] + `',
 			'` + data["prefix"] + `',
 			'` + data["career"] + `',
-			'` + data["tel"] + `',
+			'` + data["phone_number"] + `',
 			'` + data["email"] + `',
 			'` + data["income"] + `',
 			'` + data["expenditure"] + `',
-			'` + data["district_id"] + `',
-			'` + data["address"] + `',
-			'` + data["address_name"] + `',
+			'` + data["guarantordistrict_id"] + `',
+			'` + data["guarantoraddress"] + `',
+			'` + data["guarantoraddress_name"] + `',
 			'` + data["relation"] + `' ,
 			'` + fmt.Sprintf("%d", loan_id) + `'
 		)
@@ -287,6 +288,7 @@ func InsertPropertyOwner(db *gorm.DB, name string, wg *sync.WaitGroup, property_
 			'` + fmt.Sprintf("%d", propertyId) + `'
 		)
 	`).Scan(&result).Error
+	fmt.Println()
 	if error != nil {
 		fmt.Println(error)
 	}
@@ -296,7 +298,7 @@ func InsertPropertyOwner(db *gorm.DB, name string, wg *sync.WaitGroup, property_
 func InsertProperty(db *gorm.DB, req map[string]string, wg *sync.WaitGroup, property_id chan<- int64, owner_amount int, loan_id int) {
 	defer wg.Done()
 	area, _ := strconv.ParseFloat(fmt.Sprintf("%s", req["area"]), 64)
-	district_id, _ := strconv.ParseInt(fmt.Sprintf("%s", req["district_id"]), 10, 64)
+	district_id, _ := strconv.ParseInt(fmt.Sprintf("%s", req["guaranteedistrict_id"]), 10, 64)
 	type Property struct {
 		PropertyID  int64   `gorm:"primaryKey"`
 		Name        string  `gorm:"column:property_name"`
@@ -310,8 +312,8 @@ func InsertProperty(db *gorm.DB, req map[string]string, wg *sync.WaitGroup, prop
 		Name:        req["detail"],
 		Area:        area,
 		DistrictId:  district_id,
-		Address:     fmt.Sprintf("%s", req["address"]),
-		AddressName: fmt.Sprintf("%s", req["address_name"]),
+		Address:     fmt.Sprintf("%s", req["guaranteeaddress"]),
+		AddressName: fmt.Sprintf("%s", req["guaranteeaddress_name"]),
 		LoanID:      loan_id,
 	}
 	err := db.Table("Property").Create(&new_property).Error
@@ -347,23 +349,16 @@ func InsertGuaranteeOwner(db *gorm.DB, name string, wg *sync.WaitGroup, guarante
 func InsertGuarantee(db *gorm.DB, req map[string]string, wg *sync.WaitGroup, guarantee_id chan<- int64, owner_amount int, loan_id int) {
 	defer wg.Done()
 	price, _ := strconv.ParseFloat(fmt.Sprintf("%s", req["price"]), 64)
-	district_id, _ := strconv.ParseInt(fmt.Sprintf("%s", req["district_id"]), 10, 64)
 	type Guarantee struct {
-		ID          int64   `gorm:"primaryKey"`
-		Name        string  `gorm:"column:guarantee_name"`
-		Price       float64 `gorm:"column:guarantee_price"`
-		DistrictId  int64   `gorm:"column:district_id"`
-		Address     string  `gorm:"column:guarantee_address"`
-		AddressName string  `gorm:"column:guarantee_address_name"`
-		LoanID      int     `gorm:"column:loan_id"`
+		ID     int64   `gorm:"primaryKey"`
+		Name   string  `gorm:"column:guarantee_name"`
+		Price  float64 `gorm:"column:guarantee_price"`
+		LoanID int     `gorm:"column:loan_id"`
 	}
 	new_guarantee := Guarantee{
-		Name:        req["detail"],
-		Price:       price,
-		DistrictId:  district_id,
-		Address:     fmt.Sprintf("%s", req["address"]),
-		AddressName: fmt.Sprintf("%s", req["address_name"]),
-		LoanID:      loan_id,
+		Name:   req["detail"],
+		Price:  price,
+		LoanID: loan_id,
 	}
 	err := db.Table("Guarantee").Create(&new_guarantee).Error
 	for i := 0; i < owner_amount; i++ {
@@ -597,9 +592,6 @@ func GetLoanByID_Guarantee(db *gorm.DB, res map[string][]map[string]interface{},
 	result := []map[string]interface{}{}
 	err := db.Raw(`
 	SELECT * FROM Guarantee 
-	LEFT JOIN District ON Guarantee.district_id=District.district_id
-	LEFT JOIN Amphur ON District.amphur_id=Amphur.amphur_id
-	LEFT JOIN Province ON Amphur.province_id=Province.province_id
 	WHERE loan_id='` + loan_id + `'
 	`).Scan(&result).Error
 	res["guarantee"] = result
@@ -627,7 +619,6 @@ func UpdateLoanStatus(c echo.Context) error {
 	db := Service.InitialiedDb()
 	result := map[string][]map[string]interface{}{}
 	request := Helper.GetJSONRawBody(c)
-	fmt.Println("%s", request["id"])
 	if GetLoanStatus(db, fmt.Sprintf("%s", request["id"])) == "pending" && fmt.Sprintf("%s", request["new_status"]) == "accepted" {
 		account_no, amount := GetLoanInfo(db, fmt.Sprintf("%s", request["id"]))
 		wg.Add(1)

@@ -114,14 +114,11 @@ func CreatePromotion(c echo.Context) error {
 	request := Helper.GetJSONRawBody(c)
 
 	db := Service.InitialiedDb()
-
 	err := db.Raw(`
-	INSERT INTO Promotion (promotion_id, promotion_title, promotion_detail, promotion_image_path) 
+	INSERT INTO Promotion (promotion_title, promotion_detail) 
 	VALUES (
-		NULL, 
-		'` + fmt.Sprintf("%s", request["promotion_title"]) + `', 
-		'` + fmt.Sprintf("%s", request["promotion_detail"]) + `', 
-		'` + fmt.Sprintf("%s", request["promotion_image_path"]) + `'
+		'` + fmt.Sprintf("%s", request["name"]) + `', 
+		'` + fmt.Sprintf("%s", request["detail"]) + `'
 	)
 	`).Scan(&result).Error
 
@@ -136,4 +133,35 @@ func CreatePromotion(c echo.Context) error {
 	defer sql.Close()
 
 	return c.String(200, "create success")
+}
+
+func GetPromotionByID(c echo.Context) error {
+	result := map[string]interface{}{}
+
+	request := Helper.GetJSONRawBody(c)
+
+	if request["id"] == nil {
+		return echo.NewHTTPError(500, "dont have promotion id")
+	}
+
+	id := fmt.Sprintf("%s", request["id"])
+
+	db := Service.InitialiedDb()
+
+	err := db.Raw(`
+	 SELECT * FROM Promotion WHERE promotion_id='` + id + `'
+	`).Scan(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(500, "update fail")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
+
 }

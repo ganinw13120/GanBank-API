@@ -294,3 +294,25 @@ func CreateCustomerKey(c echo.Context) error {
 
 	return c.String(200, "Success")
 }
+
+func GetAllCustomer(c echo.Context) error {
+	result := []map[string]interface{}{}
+
+	db := Service.InitialiedDb()
+
+	err := db.Raw(`
+	SELECT * FROM Customer LEFT JOIN Career ON Customer.career_id=Career.career_id
+	`).Scan(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(404, "not fond")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
+}

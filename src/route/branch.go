@@ -140,3 +140,57 @@ func GetAllBranch(c echo.Context) error {
 
 	return c.JSON(200, result)
 }
+
+func DeleteBranchByID(c echo.Context) error {
+	result := map[string]interface{}{}
+	db := Service.InitialiedDb()
+
+	request := Helper.GetJSONRawBody(c)
+	err := db.Raw(`
+	DELETE FROM Branch  
+	WHERE branch_id='` + fmt.Sprintf("%s", request["branch_id"]) + `'
+	`).Find(&result).Error
+	fmt.Println(`
+	DELETE FROM Branch  
+	WHERE branch_id='` + fmt.Sprintf("%s", request["branch_id"]) + `'
+	`)
+	if err != nil {
+		return echo.NewHTTPError(404, "เกิดข้อผิดพลาด")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
+}
+
+func EditBranch(c echo.Context) error {
+	result := []map[string]interface{}{}
+
+	request := Helper.GetJSONRawBody(c)
+
+	db := Service.InitialiedDb()
+
+	err := db.Raw(`
+	UPDATE Branch SET 
+		branch_name='` + fmt.Sprintf("%s", request["branch_name"]) + `',
+		branch_address='` + fmt.Sprintf("%s", request["branch_address"]) + `',
+		district_id='` + fmt.Sprintf("%s", request["district_id"]) + `'
+		WHERE branch_id='` + fmt.Sprintf("%s", request["branch_id"]) + `'
+	`).Scan(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(500, "create fail")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.String(200, "create success")
+}

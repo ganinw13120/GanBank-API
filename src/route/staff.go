@@ -255,3 +255,52 @@ func GetStafflist(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync
 		fmt.Println(err)
 	}
 }
+
+func EditStaff(c echo.Context) error {
+	result := []map[string]interface{}{}
+
+	request := Helper.GetJSONRawBody(c)
+
+	db := Service.InitialiedDb()
+
+	var middlename string
+
+	if request["middlename"] != nil {
+
+		middlename += fmt.Sprintf("'%s'", request["middlename"])
+	} else {
+		middlename += "NULL"
+	}
+
+	err := db.Raw(`
+	UPDATE Staff SET 
+			branch_id='` + fmt.Sprintf("%.0f", request["branch_id"]) + `', 
+			staff_firstname='` + fmt.Sprintf("%s", request["firstname"]) + `',  
+			staff_middlename=` + middlename + `,  
+			staff_lastname='` + fmt.Sprintf("%s", request["lastname"]) + `', 
+			position_id='` + fmt.Sprintf("%.0f", request["position_id"]) + `', 
+			staff_phone_number='` + fmt.Sprintf("%s", request["phone_number"]) + `', 
+			staff_idcard_number='` + fmt.Sprintf("%s", request["idcard"]) + `', 
+			staff_district_id='` + fmt.Sprintf("%.0f", request["district_id"]) + `', 
+			staff_address='` + fmt.Sprintf("%s", request["address"]) + `', 
+			staff_address_name='` + fmt.Sprintf("%s", request["address_name"]) + `', 
+			staff_status='` + fmt.Sprintf("%s", request["status"]) + `', 
+			staff_gender='` + fmt.Sprintf("%s", request["gender"]) + `', 
+			education_level_id='` + fmt.Sprintf("%.0f", request["education"]) + `', 
+			staff_auth_email='` + fmt.Sprintf("%s", request["email"]) + `', 
+			staff_birthday='` + fmt.Sprintf("%s", request["birthday"]) + `'
+	WHERE staff_id='` + fmt.Sprintf("%s", request["staff_id"]) + `'
+	`).Scan(&result).Error
+
+	if err != nil {
+		return echo.NewHTTPError(500, "create fail")
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.String(200, "create success")
+}
