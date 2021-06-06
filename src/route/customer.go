@@ -3,10 +3,12 @@ package Route
 import (
 	Helper "GANBANKING_API/src/helper"
 	Service "GANBANKING_API/src/service"
+	"sync"
 
 	"fmt"
 
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 func UpdateCustomer(c echo.Context) error {
@@ -129,22 +131,27 @@ func HasCustomer(c echo.Context) error {
 	var phoneNumber string
 	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
 
-	var exists bool
+	statement := `
+		SELECT customer_passcode FROM Customer WHERE customer_phone_number = '` + phoneNumber + `'
+	`
 
 	db := Service.InitialiedDb()
-
-	db.Raw(`
-	SELECT EXISTS(SELECT customer_phone_number FROM Customer
-		WHERE customer_phone_number = '` + phoneNumber + `')
-	`).Scan(&exists)
-
+	result := map[string]interface{}{}
+	err := db.Raw(statement).Take(&result).Error
+	if err != nil {
+		return c.String(200, "dont have customer")
+	}
 	sql, err := db.DB()
 	if err != nil {
 		panic(err.Error())
 	}
 	defer sql.Close()
 
-	return c.JSON(200, exists)
+	if result["customer_passcode"] == nil {
+		return c.String(200, "dont have passcode")
+	} else {
+		return c.String(200, "ok")
+	}
 }
 
 func HasCustomerSession(c echo.Context) error {
@@ -153,7 +160,6 @@ func HasCustomerSession(c echo.Context) error {
 	var token string
 	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
 	token += fmt.Sprintf("%s", request["token"])
-
 	return c.JSON(200, Helper.CheckCustomerToken(token, phoneNumber))
 }
 
@@ -162,16 +168,20 @@ func HasCustomerKey(c echo.Context) error {
 	var phoneNumber string
 	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
 
-	var exists bool
+	statement := `
+		SELECT EXISTS(SELECT * 
+		FROM Customer 
+		WHERE customer_passcode IS NOT NULL
+		AND customer_phone_number = '`+phoneNumber+`'
+		) 
+	`
 
 	db := Service.InitialiedDb()
-
-	db.Raw(`
-	SELECT EXISTS(SELECT * 
-		FROM Customer 
-		WHERE customer_passcode IS NOT NULL) 
-	`).Scan(&exists)
-
+	var exists bool
+	err := db.Raw(statement).Find(&exists).Error
+	if err != nil {
+		panic(err.Error())
+	}
 	sql, err := db.DB()
 	if err != nil {
 		panic(err.Error())
@@ -212,9 +222,113 @@ func SignoutCustomerSession(c echo.Context) error {
 	return c.String(200, "Success")
 }
 
+func GetQrcode(c echo.Context) error {
+	request := Helper.GetJSONRawBody(c)
+	var phone, token, accountNo string
+	phone += fmt.Sprintf("%s", request["phone"])
+	token += fmt.Sprintf("%s", request["token"])
+	accountNo += fmt.Sprintf("%s", request["account_no"])
+
+	if !Helper.CheckCustomerToken(token, phone) {
+		return echo.NewHTTPError(500, "token mismatch")
+	}
+
+	qr := Helper.HashAndSalt(accountNo)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go generateQRCode(&wg, qr, accountNo)
+
+	return c.String(200, qr)
+}
+
+func generateQRCode(wg *sync.WaitGroup, qr string, accountNo string) {
+	wg.Done()
+	statement := `
+		INSERT INTO AccountQRCode (account_qr_code_id, account_qr_code_ref, account_id, created_at) 
+		VALUES (
+			NULL, 
+			'` + qr + `', 
+			'` + accountNo + `', 
+			current_timestamp()
+		)
+	`
+	db := Service.InitialiedDb()
+	result := map[string]interface{}{}
+	err := db.Raw(statement).Find(&result).Error
+	if err != nil {
+		panic(err.Error())
+	}
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+}
+
+func getCustomerAccount(wg *sync.WaitGroup, db *gorm.DB, phoneNumber string, result []map[string]interface{}) {
+	wg.Done()
+	err := db.Raw(`
+	SELECT account_no, account_name, account_balance, t.account_type_name, (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE (tran.transaction_account_no_from = account_no AND tran.transaction_type_id != 2 AND tran.transaction_type_id != 3)
+		OR tran.transaction_account_no_to = account_no
+		AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+		AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+		   ) AS income_current_month,
+		  (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE (tran.transaction_account_no_from =account_no AND tran.transaction_type_id != 2 AND tran.transaction_type_id != 3)
+		OR tran.transaction_account_no_to = account_no
+		   ) AS income_all,
+		   (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE tran.transaction_account_no_from = account_no
+		AND tran.transaction_type_id != 1
+		AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+		AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+		   ) AS outcome_current_month,
+		   (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE tran.transaction_account_no_from = account_no
+		AND tran.transaction_type_id != 1
+		   ) AS outcome_all
+	   FROM Account AS a
+		  INNER JOIN AccountType AS t
+		  ON a.account_type_id = t.account_type_id
+	   WHERE a.account_no IN (
+		SELECT DISTINCT(account_no) FROM AccountOwner WHERE customer_id = (SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `')
+	   )
+	`).Find(&result).Error
+	if err != nil {
+		panic(err.Error())
+	}
+}
+
+func insertSession(wg *sync.WaitGroup, db *gorm.DB, hashToken string, phoneNumber string) {
+	wg.Done()
+	result := map[string]interface{}{}
+	err := db.Raw(`
+	INSERT INTO CustomerSession (customer_session_id, customer_session_token, customer_session_timestamp, customer_session_status, customer_id) 
+	VALUES (NULL, '` + hashToken + `', current_timestamp(), 'login', (SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `'))
+	`).Scan(&result).Error
+	if err != nil {
+		panic(err.Error())
+	}
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+}
+
 func CreateCustomerSession(c echo.Context) error {
 	request := Helper.GetJSONRawBody(c)
-
+	db := Service.InitialiedDb()
+	result := []map[string]interface{}{}
 	var token string
 	var phoneNumber string
 	var inputPasscode string
@@ -222,11 +336,11 @@ func CreateCustomerSession(c echo.Context) error {
 	phoneNumber += fmt.Sprintf("%s", request["phoneNumber"])
 	inputPasscode += fmt.Sprintf("%s", request["passcode"])
 
+	var wg2 sync.WaitGroup
+	wg2.Add(1)
+	go getCustomerAccount(&wg2, db, phoneNumber, result)
+
 	hashToken := Helper.HashAndSalt(token)
-	fmt.Println(token)
-	fmt.Println(hashToken)
-	var result interface{}
-	db := Service.InitialiedDb()
 
 	var customerPasscode string
 	err2 := db.Raw(`
@@ -235,43 +349,25 @@ func CreateCustomerSession(c echo.Context) error {
 	if err2 != nil {
 		return echo.NewHTTPError(500, "not found")
 	}
-
 	if Helper.ComparePasswords(customerPasscode, inputPasscode) {
 		return echo.NewHTTPError(500, "password not correct")
 	}
 
-	err := db.Raw(`
-	INSERT INTO CustomerSession (customer_session_id, customer_session_token, customer_session_timestamp, customer_session_status, customer_id) 
-	VALUES (NULL, '` + hashToken + `', current_timestamp(), 'login', (SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `'))
-	`).Scan(&result).Error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go insertSession(&wg, db, hashToken, phoneNumber)
 
-	if err != nil {
-		return echo.NewHTTPError(500, "create fail")
-	}
-
-	sql, err := db.DB()
-	if err != nil {
-		panic(err.Error())
-	}
-	defer sql.Close()
-
-	return c.String(200, "Success")
-
+	wg2.Wait()
+	return c.JSON(200, result)
 }
 
 func CreateCustomerKey(c echo.Context) error {
 	request := Helper.GetJSONRawBody(c)
 	var pwd string
-	var token string
 
 	var phoneNumber string
 	pwd += fmt.Sprintf("%s", request["customer_passcode"])
 	phoneNumber += fmt.Sprintf("%s", request["customer_phone_number"])
-	token += fmt.Sprintf("%s", request["token"])
-
-	if !Helper.CheckCustomerToken(token, phoneNumber) {
-		return echo.NewHTTPError(500, "token mismatch")
-	}
 
 	db := Service.InitialiedDb()
 

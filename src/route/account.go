@@ -27,8 +27,82 @@ type Transaction struct {
 	Transaction_bank_id_from    int       `gorm:"column:transaction_bank_id_from"`
 }
 
-func checkAdequacyMoney(accountNo string, amount float64) bool {
+func GetInfoByQrcode(c echo.Context) error {
+	request := Helper.GetJSONRawBody(c)
+	var phone, token, qr string
+	phone += fmt.Sprintf("%s", request["phone"])
+	token += fmt.Sprintf("%s", request["token"])
+	qr += fmt.Sprintf("%s", request["qrcode"])
 
+	if !Helper.CheckCustomerToken(token, phone) {
+		return echo.NewHTTPError(500, "token mismatch")
+	}
+
+	statement := `
+		SELECT account_no, bank_id FROM Account WHERE account_no = (SELECT account_id 
+		FROM AccountQRCode
+		WHERE account_qr_code_ref = '` + qr + `'
+		AND created_at > DATE_ADD(CURRENT_TIMESTAMP(), INTERVAL -30 MINUTE)
+		ORDER BY created_at DESC
+		LIMIT 1)
+	`
+
+	db := Service.InitialiedDb()
+	result := map[string]interface{}{}
+	err := db.Raw(statement).Find(&result).Error
+	if err != nil {
+		panic(err.Error())
+	}
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
+}
+
+func GetLastedTransfer(c echo.Context) error {
+	request := Helper.GetJSONRawBody(c)
+	var phone, token, accountNo string
+	phone += fmt.Sprintf("%s", request["phone"])
+	token += fmt.Sprintf("%s", request["token"])
+	accountNo += fmt.Sprintf("%s", request["account_no"])
+
+	if !Helper.CheckCustomerToken(token, phone) {
+		return echo.NewHTTPError(500, "token mismatch")
+	}
+
+	statement := `
+		SELECT a.account_no, a.account_name, a.bank_id 
+		FROM Account AS a
+		WHERE a.account_no 
+		IN (
+			SELECT DISTINCT(t.transaction_account_no_to) 
+			FROM Transaction AS t 
+			WHERE t.transaction_account_no_from = '` + accountNo + `' 
+			AND t.transaction_type_id = 2
+			AND t.transaction_account_no_to != '` + accountNo + `' 
+		)
+		LIMIT 10
+	`
+
+	result := []map[string]interface{}{}
+	db := Service.InitialiedDb()
+	err := db.Raw(statement).Find(&result).Error
+	if err != nil {
+		panic(err.Error())
+	}
+	sql, err := db.DB()
+	if err != nil {
+		panic(err.Error())
+	}
+	defer sql.Close()
+
+	return c.JSON(200, result)
+}
+
+func checkAdequacyMoney(accountNo string, amount float64) bool {
 	var result bool
 	db := Service.InitialiedDb()
 	err := db.Raw(`
@@ -166,8 +240,8 @@ func PrepareTransaction(c echo.Context) error {
 	accountNo += fmt.Sprintf("%s", request["account_no"])
 	result := map[string][]map[string]interface{}{}
 	wg.Add(2)
-	go GetAccountIncomeAndOutcome(db, result, accountNo, &wg)
-	go GetAccountTransaction(db, result, accountNo, &wg)
+	go getAccountIncomeAndOutcome(db, result, accountNo, &wg)
+	go getAccountTransaction(db, result, accountNo, &wg)
 
 	sql, err := db.DB()
 	if err != nil {
@@ -179,7 +253,7 @@ func PrepareTransaction(c echo.Context) error {
 	return c.JSON(200, result)
 }
 
-func GetAccountIncomeAndOutcome(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string, wg *sync.WaitGroup) {
+func getAccountIncomeAndOutcome(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string, wg *sync.WaitGroup) {
 	result := []map[string]interface{}{}
 	defer wg.Done()
 	err := db.Raw(`
@@ -220,26 +294,26 @@ func GetAccountIncomeAndOutcome(db *gorm.DB, res map[string][]map[string]interfa
 
 }
 
-func GetAccountTransaction(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string, wg *sync.WaitGroup) {
+func getAccountTransaction(db *gorm.DB, res map[string][]map[string]interface{}, accountNo string, wg *sync.WaitGroup) {
 	result := []map[string]interface{}{}
 	defer wg.Done()
 	err := db.Raw(`
-	SELECT tran.transaction_amount, type.transaction_type_name, tran.transaction_timestamp, "from" AS account_way 
-	FROM Transaction AS tran
-	INNER JOIN TransactionType AS type
-	ON tran.transaction_type_id = type.transaction_type_id
-	WHERE tran.transaction_account_no_from = '` + accountNo + `'
-	AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
-	AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
-	UNION
-	SELECT tran.transaction_amount, type.transaction_type_name, tran.transaction_timestamp, "to" AS account_way 
-	FROM Transaction AS tran
-	INNER JOIN TransactionType AS type
-	ON tran.transaction_type_id = type.transaction_type_id
-	WHERE tran.transaction_account_no_to = '` + accountNo + `' 
-	AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
-	AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
-	ORDER BY transaction_timestamp DESC
+		SELECT tran.transaction_amount, type.transaction_type_name, tran.transaction_timestamp, "from" AS account_way 
+		FROM Transaction AS tran
+		INNER JOIN TransactionType AS type
+		ON tran.transaction_type_id = type.transaction_type_id
+		WHERE tran.transaction_account_no_from = '` + accountNo + `'
+		AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+		AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+		UNION
+		SELECT tran.transaction_amount, type.transaction_type_name, tran.transaction_timestamp, "to" AS account_way 
+		FROM Transaction AS tran
+		INNER JOIN TransactionType AS type
+		ON tran.transaction_type_id = type.transaction_type_id
+		WHERE tran.transaction_account_no_to = '` + accountNo + `' 
+		AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+		AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+		ORDER BY transaction_timestamp DESC
 	`).Find(&result).Error
 	if err != nil {
 		fmt.Println(err)
@@ -262,14 +336,42 @@ func GetAccountByCustomer(c echo.Context) error {
 	}
 
 	err := db.Raw(`
-	SELECT account_no, account_name, account_balance, t.account_type_name
-	FROM Account AS a
-    INNER JOIN AccountType AS t
-    ON a.account_type_id = t.account_type_id
-	WHERE a.account_no IN (
+	SELECT account_no, account_name, account_balance, t.account_type_name, (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE (tran.transaction_account_no_from = account_no AND tran.transaction_type_id != 2 AND tran.transaction_type_id != 3)
+		OR tran.transaction_account_no_to = account_no
+		AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+		AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+		   ) AS income_current_month,
+		  (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE (tran.transaction_account_no_from =account_no AND tran.transaction_type_id != 2 AND tran.transaction_type_id != 3)
+		OR tran.transaction_account_no_to = account_no
+		   ) AS income_all,
+		   (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE tran.transaction_account_no_from = account_no
+		AND tran.transaction_type_id != 1
+		AND MONTH(tran.transaction_timestamp) = MONTH(CURRENT_DATE())
+		AND YEAR(tran.transaction_timestamp) = YEAR(CURRENT_DATE())
+		   ) AS outcome_current_month,
+		   (
+		SELECT SUM(tran.transaction_amount)
+		FROM Transaction AS tran
+		WHERE tran.transaction_account_no_from = account_no
+		AND tran.transaction_type_id != 1
+		   ) AS outcome_all
+	   FROM Account AS a
+		  INNER JOIN AccountType AS t
+		  ON a.account_type_id = t.account_type_id
+	   WHERE a.account_no IN (
 		SELECT DISTINCT(account_no) FROM AccountOwner WHERE customer_id = (SELECT customer_id FROM Customer WHERE customer_phone_number = '` + phoneNumber + `')
-	)
-	`).Scan(&result).Error
+	   )
+	   AND a.account_status = 'active'
+	`).Find(&result).Error
 	if err != nil {
 		return echo.NewHTTPError(404, "not fond")
 	}
