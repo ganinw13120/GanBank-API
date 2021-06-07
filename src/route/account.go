@@ -427,14 +427,19 @@ func GetAccount(c echo.Context) error {
 
 	db := Service.InitialiedDb()
 
+	request := Helper.GetJSONRawBody(c)
+	isTokenValid, _, branch_id, _ := CheckSessionToken(db, fmt.Sprintf("%s", request["token"]))
+	if !isTokenValid {
+		return echo.NewHTTPError(500, "Token mismatch")
+	}
 	wg.Add(7)
-	go GetAccountList(db, result, &wg)
-	go GetSuspendAccountCount(db, result, &wg)
-	go GetActiveAccountCount(db, result, &wg)
-	go GetAccountCountThisMonth(db, result, &wg)
-	go GetAccountCount(db, result, &wg)
-	go GetMostAccountType(db, result, &wg)
-	go GetTotalDepositAmount(db, result, &wg)
+	go GetAccountList(db, result, &wg, branch_id)
+	go GetSuspendAccountCount(db, result, &wg, branch_id)
+	go GetActiveAccountCount(db, result, &wg, branch_id)
+	go GetAccountCountThisMonth(db, result, &wg, branch_id)
+	go GetAccountCount(db, result, &wg, branch_id)
+	go GetMostAccountType(db, result, &wg, branch_id)
+	go GetTotalDepositAmount(db, result, &wg, branch_id)
 	wg.Wait()
 	sql, err := db.DB()
 	if err != nil {
@@ -445,14 +450,16 @@ func GetAccount(c echo.Context) error {
 	return c.JSON(200, result)
 }
 
-func GetAccountList(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+func GetAccountList(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup, branch_id int64) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
 	SELECT * FROM Account
 	LEFT JOIN AccountType ON Account.account_type_id=AccountType.account_type_id
 	LEFT JOIN Branch ON Account.branch_id=Branch.branch_id
+	WHERE Account.branch_id='` + fmt.Sprintf("%d", branch_id) + `'
 	ORDER BY account_no DESC
+	
 	`).Scan(&result).Error
 	res["account_list"] = result
 	if err != nil {
@@ -460,11 +467,12 @@ func GetAccountList(db *gorm.DB, res map[string][]map[string]interface{}, wg *sy
 	}
 }
 
-func GetAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+func GetAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup, branch_id int64) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
 	SELECT COUNT(*) as count FROM Account
+	WHERE Account.branch_id='` + fmt.Sprintf("%d", branch_id) + `'
 	`).Scan(&result).Error
 	res["account_count"] = result
 	if err != nil {
@@ -472,11 +480,12 @@ func GetAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *s
 	}
 }
 
-func GetAccountCountThisMonth(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+func GetAccountCountThisMonth(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup, branch_id int64) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
 	SELECT COUNT(*) as count  FROM Account  WHERE MONTH(account_timestamp)=Month(now())
+	AND Account.branch_id='` + fmt.Sprintf("%d", branch_id) + `'
 	`).Scan(&result).Error
 	res["account_count_this_month"] = result
 	if err != nil {
@@ -484,44 +493,50 @@ func GetAccountCountThisMonth(db *gorm.DB, res map[string][]map[string]interface
 	}
 }
 
-func GetMostAccountType(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+func GetMostAccountType(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup, branch_id int64) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
-	SELECT account_type_name, COUNT(*) as count  FROM Account LEFT JOIN AccountType ON Account.account_type_id=AccountType.account_type_id GROUP BY Account.account_type_id ORDER BY COUNT(*) DESC LIMIT 1
+	SELECT account_type_name, COUNT(*) as count  FROM Account LEFT JOIN AccountType ON Account.account_type_id=AccountType.account_type_id
+	WHERE Account.branch_id='` + fmt.Sprintf("%d", branch_id) + `'
+	GROUP BY Account.account_type_id ORDER BY COUNT(*) DESC LIMIT 1
+	
 	`).Scan(&result).Error
 	res["most_account_type"] = result
 	if err != nil {
 		fmt.Println(err)
 	}
 }
-func GetActiveAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+func GetActiveAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup, branch_id int64) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
 	SELECT COUNT(*)  as count FROM Account  WHERE account_status='active'
+	AND Account.branch_id='` + fmt.Sprintf("%d", branch_id) + `'
 	`).Scan(&result).Error
 	res["active"] = result
 	if err != nil {
 		fmt.Println(err)
 	}
 }
-func GetSuspendAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+func GetSuspendAccountCount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup, branch_id int64) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
 	SELECT COUNT(*) as count  FROM Account  WHERE account_status='suspended'
+	AND Account.branch_id='` + fmt.Sprintf("%d", branch_id) + `'
 	`).Scan(&result).Error
 	res["suspend"] = result
 	if err != nil {
 		fmt.Println(err)
 	}
 }
-func GetTotalDepositAmount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup) {
+func GetTotalDepositAmount(db *gorm.DB, res map[string][]map[string]interface{}, wg *sync.WaitGroup, branch_id int64) {
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
 	SELECT SUM(account_balance) as sum,AVG(account_balance) as avg FROM Account WHERE account_status='active' AND account_balance>0
+	AND Account.branch_id='` + fmt.Sprintf("%d", branch_id) + `'
 	`).Scan(&result).Error
 	res["deposit"] = result
 	if err != nil {
@@ -532,10 +547,14 @@ func GetTotalDepositAmount(db *gorm.DB, res map[string][]map[string]interface{},
 func CreateAccount(c echo.Context) error {
 	var wg sync.WaitGroup
 	request := Helper.GetJSONRawBody(c)
-	account_number := make(chan int)
 	db := Service.InitialiedDb()
+	isTokenValid, _, branch_id, _ := CheckSessionToken(db, fmt.Sprintf("%s", request["token"]))
+	if !isTokenValid {
+		return echo.NewHTTPError(500, "Token mismatch")
+	}
+	account_number := make(chan int)
 	wg.Add(1)
-	go CreateBankAccount(db, request, &wg, account_number)
+	go CreateBankAccount(db, request, &wg, account_number, branch_id)
 
 	switch request["info"].(type) {
 	case interface{}:
@@ -605,18 +624,18 @@ func GetBranchList(db *gorm.DB, res map[string][]map[string]interface{}, wg *syn
 	}
 }
 
-func CreateBankAccount(db *gorm.DB, req map[string]interface{}, wg *sync.WaitGroup, account_number chan<- int) {
+func CreateBankAccount(db *gorm.DB, req map[string]interface{}, wg *sync.WaitGroup, account_number chan<- int, branch_id int64) {
 	defer wg.Done()
 	type Account struct {
 		Account_no   int    `gorm:"primaryKey"`
 		Account_name string `gorm:"column:account_name"`
 		Account_type string `gorm:"column:account_type_id"`
-		Branch       string `gorm:"column:branch_id"`
+		Branch       int64  `gorm:"column:branch_id"`
 	}
 	new_account := Account{
 		Account_name: fmt.Sprintf("%s", req["account_name"]),
 		Account_type: fmt.Sprintf("%.0f", req["account_type_selected"]),
-		Branch:       fmt.Sprintf("%.0f", req["branch_selected"]),
+		Branch:       branch_id,
 	}
 	db.Table("Account").Create(&new_account)
 	for k, _ := range req["info"].([]interface{}) {
