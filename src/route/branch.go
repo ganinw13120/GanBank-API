@@ -175,7 +175,7 @@ func GetBranchAmount_Transfer(db *gorm.DB, res map[string][]map[string]interface
 	LEFT JOIN Branch ON Staff.branch_id=Branch.branch_id
 	WHERE Transaction.transaction_type_id='2' 
     GROUP BY Branch.branch_id
-	ORDER BY SUM(transaction_amount) LIMIT 1
+	ORDER BY SUM(transaction_amount) DESC LIMIT 1
 	`).Scan(&result).Error
 	res["transfer"] = result
 	if err != nil {
@@ -191,7 +191,7 @@ func GetBranchAmount_Deposit(db *gorm.DB, res map[string][]map[string]interface{
 	LEFT JOIN Branch ON Staff.branch_id=Branch.branch_id
 	WHERE Transaction.transaction_type_id='1'
     GROUP BY Branch.branch_id
-	ORDER BY SUM(transaction_amount) LIMIT 1
+	ORDER BY SUM(transaction_amount) DESC LIMIT 1
 	`).Scan(&result).Error
 	res["deposit"] = result
 	if err != nil {
@@ -207,7 +207,7 @@ func GetBranchAmount_Withdraw(db *gorm.DB, res map[string][]map[string]interface
 	LEFT JOIN Branch ON Staff.branch_id=Branch.branch_id
 	WHERE Transaction.transaction_type_id='3'
     GROUP BY Branch.branch_id
-	ORDER BY SUM(transaction_amount) LIMIT 1
+	ORDER BY SUM(transaction_amount) DESC LIMIT 1
 	`).Scan(&result).Error
 	res["withdraw"] = result
 	if err != nil {
