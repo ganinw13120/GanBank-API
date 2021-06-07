@@ -186,7 +186,7 @@ func GetTransactionCount(db *gorm.DB, res map[string][]map[string]interface{}, w
 	defer wg.Done()
 	result := []map[string]interface{}{}
 	err := db.Raw(`
-	SELECT COUNT(*) as count FROM Transaction 
+	SELECT COUNT(*) as count  FROM Transaction WHERE DAY(transaction_timestamp)=DAY(now())
 	`).Scan(&result).Error
 	res["transaction_count"] = result
 	if err != nil {
