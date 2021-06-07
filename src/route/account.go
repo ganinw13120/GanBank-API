@@ -123,6 +123,10 @@ func checkAdequacyMoney(accountNo string, amount float64) bool {
 
 func updateAccountBalance(accountNo string, amount string, db *gorm.DB, wg *sync.WaitGroup, isIncrease bool) {
 	defer wg.Done()
+	fmt.Println(accountNo)
+	fmt.Println(amount)
+	fmt.Println(isIncrease)
+	fmt.Println()
 	var operator string
 	if isIncrease {
 		operator = "+"
@@ -150,7 +154,7 @@ func Transfer(c echo.Context) error {
 	request := Helper.GetJSONRawBody(c)
 	var accountNoFrom, accountNoTo, amount, phone, token string
 	accountNoFrom += fmt.Sprintf("%g", request["accountNoFrom"].(float64))
-	accountNoTo += fmt.Sprintf("%s", request["accountNoTo"])
+	accountNoTo += fmt.Sprintf("%g", request["accountNoTo"].(float64))
 	amount += fmt.Sprintf("%g", request["amount"].(float64))
 	phone += fmt.Sprintf("%s", request["phone"])
 	token += fmt.Sprintf("%s", request["token"])
