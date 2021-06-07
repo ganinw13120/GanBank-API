@@ -835,7 +835,6 @@ func EditAccount(c echo.Context) error {
 	request := Helper.GetJSONRawBody(c)
 	err := db.Raw(`
 	UPDATE Account SET 
-	branch_id='` + fmt.Sprintf("%.0f", request["branch_selected"]) + `' , 
 	account_type_id='` + fmt.Sprintf("%.0f", request["account_type_selected"]) + `' , 
 	account_name='` + fmt.Sprintf("%s", request["account_name"]) + `' 
 	WHERE account_no='` + fmt.Sprintf("%s", request["account_no"]) + `'
