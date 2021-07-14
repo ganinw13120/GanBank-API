@@ -7,5 +7,4 @@ WORKDIR /go/src/project/
 COPY . /go/src/project/
 
 RUN go build main.go
-
 CMD ["./main"]
