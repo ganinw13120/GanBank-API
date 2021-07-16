@@ -6,5 +6,4 @@ WORKDIR /go/src/project/
 
 COPY . /go/src/project/
 
-RUN go build main.go
-CMD ["./main"]
+RUN go build -v -o main.go
